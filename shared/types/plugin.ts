@@ -157,8 +157,10 @@ export interface PluginManifest {
   apiLevel: number;
   /** 源码 SHA1（内容指纹，用于校验下载完整性） */
   hash: string;
-  /** 更新检查地址（来自 @updateUrl，指向 raw .js）；宿主拉取后读其 @version 与本地比对 */
+  /** 脚本声明的更新地址，未保存导入地址时用于检查新版 */
   updateUrl?: string;
+  /** URL 导入时的脚本地址，优先用它检查新版 */
+  sourceUrl?: string;
   /** 更新说明（来自 @changelog）；检查到新版时取远端这一份展示在卡片上 */
   changelog?: string;
   /** 安装时间戳（ms） */
@@ -618,7 +620,7 @@ export interface PluginsApi {
    */
   setSetting: (id: string, key: string, value: unknown) => Promise<void>;
   /**
-   * 手动检查更新：拉 @updateUrl 读远端 @version 与本地比对，有新版则置 updateInfo
+   * 手动检查更新：优先从导入地址读取远端版本，有新版时返回更新信息
    * @param id - 插件 ID
    * @returns ok 是否成功联网比对；hasUpdate 是否发现新版；plugin 最新信息
    */
@@ -659,6 +661,10 @@ export interface PluginsConfig {
   priority: {
     musicUrl: string[];
   };
+  /** 后续成功加载音源时按累计成功次数调整顺序 */
+  autoSortMusicSources: boolean;
+  /** 已安装插件成功加载音源的累计次数 */
+  musicSourceSuccesses: Record<string, number>;
   /** 每插件的用户设置 */
   perPlugin: Record<string, Record<string, unknown>>;
 }

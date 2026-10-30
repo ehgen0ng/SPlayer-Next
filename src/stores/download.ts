@@ -70,11 +70,10 @@ export const useDownloadStore = defineStore("download", () => {
   const init = async (): Promise<void> => {
     if (initialized.value) return;
     initialized.value = true;
-    unsubscribers.push(initDownloadResolver());
+    unsubscribers.push(initDownloadResolver(applyTask));
     const tasks = await window.api.download.list();
     activeTasks.value = tasks.filter((task) => isActive(task.status)).sort(compareActive);
     historyTasks.value = tasks.filter((task) => !isActive(task.status)).sort(compareHistory);
-    unsubscribers.push(window.api.download.onState(applyTask));
     unsubscribers.push(window.api.download.onProgress(applyProgress));
   };
 

@@ -40,7 +40,7 @@ const lyricCategory: SettingCategory = {
               key: "smartPreferOnline",
               type: "switch",
               binding: { store: "settings", path: "lyric.smartPreferOnline" },
-              defaultValue: false,
+              defaultValue: true,
             },
           ],
         },
@@ -96,7 +96,7 @@ const lyricCategory: SettingCategory = {
           key: "enableOnlineTTMLLyric",
           type: "switch",
           binding: { store: "settings", path: "system.lyric.enableOnlineTTMLLyric" },
-          defaultValue: false,
+          defaultValue: true,
           tag: { text: "Beta" },
           children: [
             {

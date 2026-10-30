@@ -1,5 +1,19 @@
 use super::*;
 
+/// 独立读取音源元数据，不创建输出流或修改当前播放状态
+/// @param source - 音频文件路径或网络地址
+/// @returns 音源原始元数据
+#[napi]
+pub async fn probe_audio_source(source: String) -> Result<JsMusicMetadata> {
+    tokio::task::spawn_blocking(move || {
+        let prepared =
+            decoder::prepare_decode(&source, None, HttpCancelHandle::new()).into_napi()?;
+        Ok(AudioPlayer::meta_to_js(prepared.metadata))
+    })
+    .await
+    .map_err(|err| Error::from_reason(err.to_string()))?
+}
+
 #[napi]
 impl AudioPlayer {
     /// 加载音频源并返回完整元信息

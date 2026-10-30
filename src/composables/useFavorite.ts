@@ -1,6 +1,7 @@
 import type { Track } from "@shared/types/player";
 import { useLibraryStore } from "@/stores/library";
 import { useUserStore } from "@/stores/user";
+import { useQQMusicStore } from "@/stores/qqmusic";
 import { useSettingsStore } from "@/stores/settings";
 import { toast } from "@/composables/useToast";
 import i18n from "@/i18n";
@@ -22,6 +23,7 @@ const recordFavoriteChange = (track: Track, liked: boolean): void => {
 export const useFavorite = () => {
   const library = useLibraryStore();
   const user = useUserStore();
+  const qqmusic = useQQMusicStore();
   const settings = useSettingsStore();
   const streaming = useStreamingStore();
   const t = (key: string): string => i18n.global.t(key);
@@ -47,6 +49,7 @@ export const useFavorite = () => {
     if (!track) return false;
     if (track.source === "local") return library.isLiked(track.id);
     if (track.source === "netease") return user.isLiked(track.id);
+    if (track.source === "qqmusic") return qqmusic.isLiked(track.id);
     if (track.source === "streaming") return streaming.isFavorite(track);
     return false;
   };

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useDataStore } from "@/stores/data";
+import { useUserStore } from "@/stores/user";
+import { neteaseQrLoginAdapter, syncNeteaseDeviceName } from "@/apis/login/netease";
 import { toast } from "@/composables/useToast";
-import { getPlatformAccountAdapter } from "@/apis/login/platform";
+import { getPlatformAccountAdapter, type PlatformAccountAdapter } from "@/apis/login/platform";
 import { REPO_NAME } from "@/utils/config";
 import type { Platform } from "@shared/types/platform";
 import type { DropdownMenuItem } from "@/components/ui/SDropdownMenu.vue";
@@ -10,12 +12,42 @@ defineOptions({ inheritAttrs: false });
 
 const { t } = useI18n();
 const dataStore = useDataStore();
+const userStore = useUserStore();
 
 const props = defineProps<{ platform: Platform }>();
-const adapter = computed(() => getPlatformAccountAdapter(props.platform));
+const adapter = computed<PlatformAccountAdapter>(() => {
+  if (props.platform !== "netease") return getPlatformAccountAdapter(props.platform);
+  return {
+    displayName: "NCM",
+    userIdLabel: "UID",
+    fetchProfile: async () => {
+      await userStore.fetchStatus();
+      return profile.value;
+    },
+    logout: userStore.logout,
+    qrLogin: neteaseQrLoginAdapter,
+    setCookie: async (cookie) => (await window.api.apis.setCookie("netease", cookie)).ok,
+    openWebLogin: async () => {
+      const result = await window.api.apis.openLoginWeb("netease");
+      if (result.ok) void syncNeteaseDeviceName();
+      return result.ok;
+    },
+  };
+});
 const platformName = computed(() => adapter.value.displayName);
 
-const profile = computed(() => dataStore.getPlatformProfile(props.platform));
+const profile = computed(() => {
+  if (props.platform !== "netease") return dataStore.getPlatformProfile(props.platform);
+  const current = userStore.profile;
+  return current
+    ? {
+        userId: String(current.userId),
+        nickname: current.nickname,
+        avatarUrl: current.avatarUrl ?? "",
+        isVip: !!current.vipType,
+      }
+    : null;
+});
 const loggingIn = ref(false);
 const confirmOpen = ref(false);
 const cookieModalOpen = ref(false);
@@ -67,10 +99,10 @@ watch(cookieModalOpen, (val) => {
   }
 });
 
-/** 刷新登录状态并同步 Store */
+/** 刷新平台登录状态，NCM 沿用用户 Store 作为唯一账号来源 */
 const refresh = async (): Promise<void> => {
   const latest = await adapter.value.fetchProfile();
-  dataStore.setPlatformProfile(props.platform, latest);
+  if (props.platform !== "netease") dataStore.setPlatformProfile(props.platform, latest);
 };
 
 onMounted(refresh);
@@ -101,7 +133,7 @@ const handleLogin = async (): Promise<void> => {
   }
 };
 
-/** 断开连接 / 登出 */
+/** 退出对应平台并清除该平台的界面资料 */
 const handleDisconnect = async (): Promise<void> => {
   confirmOpen.value = false;
   await adapter.value.logout();
@@ -109,7 +141,7 @@ const handleDisconnect = async (): Promise<void> => {
   toast.success(t("settings.platformLogin.toast.logoutDone", { name: platformName.value }));
 };
 
-/** 手动输入 Cookie 提交 */
+/** 保存平台 Cookie 并刷新对应账号与收藏 */
 const handleManualCookieSubmit = async (): Promise<void> => {
   const cookieStr = manualCookie.value.trim();
   if (!cookieStr || cookieSubmitting.value) return;
@@ -122,9 +154,8 @@ const handleManualCookieSubmit = async (): Promise<void> => {
       return;
     }
 
-    const latest = await adapter.value.fetchProfile();
-    if (latest) {
-      dataStore.setPlatformProfile(props.platform, latest);
+    await refresh();
+    if (profile.value) {
       cookieModalOpen.value = false;
       manualCookie.value = "";
       toast.success(t("settings.platformLogin.toast.cookieSuccess", { name: platformName.value }));

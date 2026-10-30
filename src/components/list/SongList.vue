@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Artist, PlaybackContext, Track, TrackSource } from "@shared/types/player";
+import { isPlatform, PLATFORM_SHORT_NAME } from "@shared/types/platform";
 import type { CollectionType } from "@/types/collection";
 import type { SongListSortKey, SongListSortPreference, SortField, SortOrder } from "@/types/list";
 import { useMediaStore } from "@/stores/media";
@@ -33,6 +34,8 @@ const props = withDefaults(
     showDuration?: boolean;
     /** 显示文件大小 */
     showSize?: boolean;
+    /** 显示歌曲所属平台 */
+    showSource?: boolean;
     /** 是否启用排序交互 */
     enableSort?: boolean;
     /** 排序偏好作用域 */
@@ -58,6 +61,7 @@ const props = withDefaults(
     showAlbum: true,
     showDuration: true,
     showSize: false,
+    showSource: false,
     enableSort: false,
     sortKey: undefined,
     source: "local",
@@ -782,6 +786,14 @@ defineExpose({
                       playingId === item.id ? 'text-primary/70' : 'text-on-surface-variant',
                     ]"
                   >
+                    <STag
+                      v-if="showSource && isPlatform(item.source)"
+                      variant="outline"
+                      size="tiny"
+                      class="shrink-0"
+                    >
+                      {{ PLATFORM_SHORT_NAME[item.source] }}
+                    </STag>
                     <STag
                       v-if="downloadStore.isDownloaded(item)"
                       type="primary"

@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { PLATFORM_SHORT_NAME } from "@shared/types/platform";
 defineOptions({ name: "Favorites" });
 
 import type { CoverItem } from "@/types/artist";
 import { useUserStore } from "@/stores/user";
+import { useQQMusicStore } from "@/stores/qqmusic";
+import { useOnlineLibrary } from "@/composables/useOnlineLibrary";
 import {
   albumsToCoverItems,
   artistsToCoverItems,
@@ -18,6 +21,8 @@ const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const user = useUserStore();
+const qqmusic = useQQMusicStore();
+const online = useOnlineLibrary();
 
 type FavTab = "playlist" | "album" | "artist";
 
@@ -42,9 +47,10 @@ const tabs = computed(() => [
 ]);
 
 const playlistItems = computed<CoverItem[]>(() =>
-  user.subscribedPlaylists.map((pl) => ({
+  online.subscribedPlaylists.value.map((pl) => ({
     ...playlistToCoverItem(pl),
-    subtitle: pl.trackCount ? t("common.totalSongs", { count: pl.trackCount }) : "",
+    id: `${pl.source}:${pl.id}`,
+    subtitle: `${PLATFORM_SHORT_NAME[pl.source]} · ${t("common.totalSongs", { count: pl.trackCount ?? 0 })}`,
   })),
 );
 
@@ -79,7 +85,16 @@ const countMeta = computed(() => {
   }
 });
 
+/** 打开收藏条目，并保留所属音乐平台 */
 const handleClick = (item: CoverItem): void => {
+  if (activeTab.value === "playlist") {
+    const separator = item.id.indexOf(":");
+    const source = item.id.slice(0, separator);
+    router.push(
+      `/collection/${source}/playlist/${encodeURIComponent(item.id.slice(separator + 1))}`,
+    );
+    return;
+  }
   if (activeTab.value === "artist") {
     router.push(`/artist/netease/${encodeURIComponent(item.id)}`);
   } else {
@@ -98,7 +113,7 @@ const handleClick = (item: CoverItem): void => {
         </h1>
         <Transition name="fade" mode="out-in">
           <span
-            v-if="user.isLoggedIn"
+            v-if="online.isLoggedIn.value"
             :key="activeTab"
             class="flex items-center gap-1.5 text-sm text-on-surface-variant/50 truncate"
           >
@@ -108,9 +123,12 @@ const handleClick = (item: CoverItem): void => {
         </Transition>
       </div>
       <STabs :model-value="activeTab" :tabs="tabs" @update:model-value="onTabSwitch" />
+      <SAlert v-if="qqmusic.error" type="warning" class="mt-2">
+        {{ "QM" }}：{{ qqmusic.error }}
+      </SAlert>
     </div>
     <!-- 未登录 -->
-    <div v-if="!user.isLoggedIn" class="flex-1 flex items-center justify-center">
+    <div v-if="!online.isLoggedIn.value" class="flex-1 flex items-center justify-center">
       <div class="text-center text-on-surface-variant/60">
         <IconMaterialSymbolsFavoriteOutline class="size-12 mx-auto mb-3 opacity-30" />
         <div class="text-sm">{{ t("favorites.notLogin") }}</div>
@@ -128,6 +146,13 @@ const handleClick = (item: CoverItem): void => {
           :padding-bottom="20"
           @click="handleClick"
         />
+      </div>
+      <div
+        v-else-if="qqmusic.loading"
+        key="loading"
+        class="flex-1 flex items-center justify-center"
+      >
+        <SLoading class="text-4xl text-primary/70" />
       </div>
       <div v-else key="empty" class="flex-1 flex items-center justify-center">
         <div class="text-center text-on-surface-variant/50">

@@ -52,6 +52,7 @@ describe("QQ 搜索签名请求", () => {
     expect(url).toBe("https://u.y.qq.com/cgi-bin/musicu.fcg");
     expect(JSON.parse(init.body).comm).toMatchObject({ uin: "123456", authst: "saved-key" });
     expect(init.headers.Cookie).toBe("uin=123456; qm_keyst=saved-key");
+    expect(init.headers.Referer).toBe("https://y.qq.com/");
   });
 
   it("四类搜索共用签名网关，并保留分页参数和结果映射", async () => {

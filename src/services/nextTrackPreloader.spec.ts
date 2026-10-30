@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     player: {
       preloadNextTrack: true,
       songLevel: "hq",
+      preferPluginSource: false,
       allowTrialPlay: false,
       transitionMode: "crossfade",
       transitionPreference: "standard",
@@ -47,7 +48,7 @@ vi.mock("@/stores/settings", () => ({ useSettingsStore: () => mocks.settings }))
 vi.mock("@/stores/status", () => ({ useStatusStore: () => mocks.status }));
 vi.mock("@/stores/media", () => ({ useMediaStore: () => ({ track: { id: "current" } }) }));
 vi.mock("@/stores/streaming", () => ({ useStreamingStore: () => ({ activeServerId: "server" }) }));
-vi.mock("@/stores/plugins", () => ({ usePluginsStore: () => ({ list: [] }) }));
+vi.mock("@/stores/plugins", () => ({ usePluginsStore: () => ({ list: [], orderedList: [] }) }));
 vi.mock("@/stores/queue", () => ({ queue: { value: [] } }));
 vi.mock("@/core/player/candidate", () => ({ getNextTrackCandidate: () => mocks.candidate }));
 vi.mock("@/services/audioSource", () => ({ resolveTrackSource: mocks.resolve }));
@@ -64,6 +65,7 @@ describe("下一曲真实预载", () => {
     mocks.status = reactive({ ...mocks.status, state: "playing", trackLoading: false });
     mocks.settings = reactive(mocks.settings);
     mocks.settings.player.preloadNextTrack = true;
+    mocks.settings.player.preferPluginSource = false;
     mocks.settings.player.transitionMode = "crossfade";
     mocks.settings.player.transitionPreference = "standard";
     mocks.settings.system.cache.songCache = { enabled: true, cacheStreaming: true };
@@ -86,6 +88,45 @@ describe("下一曲真实预载", () => {
   afterEach(async () => {
     const preloader = await import("./nextTrackPreloader");
     preloader.disposeNextTrackPreload();
+  });
+
+  it.each(["plugin", "official"])("插件优先时不缓存尚未校验音质的 %s 地址", async (provider) => {
+    mocks.settings.player.preferPluginSource = true;
+    const cacheRequest = vi.fn();
+    mocks.resolve.mockResolvedValue({
+      source: "https://music/unknown",
+      provider,
+      fromCache: false,
+      cacheRequest,
+    });
+    const preloader = await import("./nextTrackPreloader");
+    preloader.scheduleNextTrackPreload();
+    await flushPromises();
+    expect(cacheRequest).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(preloader.consumePreloadedTrack(mocks.candidate.track as Track)?.source?.source).toBe(
+      "https://music/unknown",
+    );
+  });
+
+  it("切换音源优先级后取消旧预载并重新解析", async () => {
+    mocks.resolve.mockResolvedValue({
+      source: "C:/cache/next.bin",
+      provider: "cache",
+      fromCache: true,
+    });
+    const preloader = await import("./nextTrackPreloader");
+    preloader.installNextTrackPreloadWatchers();
+    preloader.scheduleNextTrackPreload();
+    await flushPromises();
+    const previous = preloader.peekPreparedTrack(mocks.candidate.track as Track)!;
+    mocks.settings.player.preferPluginSource = true;
+    await flushPromises();
+    expect(mocks.resolve).toHaveBeenCalledTimes(2);
+    expect(mocks.cancel).toHaveBeenCalledWith(previous.preparedId);
+    expect(preloader.peekPreparedTrack(mocks.candidate.track as Track)?.preparedId).not.toBe(
+      previous.preparedId,
+    );
   });
 
   it("已下载歌曲直接准备原生预载槽位", async () => {

@@ -80,7 +80,7 @@ export const registerPluginIpc = (): void => {
   ipcMain.handle("plugin:installFromUrl", async (_evt, url: string) => {
     try {
       const source = await fetchScript(url);
-      const info = await pluginRegistry.installFromSource(source);
+      const info = await pluginRegistry.installFromSource(source, url);
       return { ok: true, id: info.manifest.id };
     } catch (err) {
       coreLog.warn("[plugin] installFromUrl failed:", err);
@@ -111,7 +111,7 @@ export const registerPluginIpc = (): void => {
     await pluginRegistry.setSetting(id, key, value);
   });
 
-  // 手动检查更新：拉 @updateUrl(raw .js) 读其 @version 与本地比对，有新版则置 updateInfo
+  // 优先使用导入地址，否则使用脚本声明的更新地址
   ipcMain.handle("plugin:checkUpdate", async (_evt, id: string) => {
     try {
       return await pluginRegistry.checkUpdate(id);

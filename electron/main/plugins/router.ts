@@ -66,6 +66,11 @@ const callOn = <T>(
   });
 };
 
+/**
+ * 按请求音质调用插件解析地址
+ * @param args - 插件标识、音源、歌曲信息和音质
+ * @returns 插件提供的播放地址
+ */
 export const resolveUrl = async (args: PluginResolveUrlArgs): Promise<MusicUrlRes> => {
   const rt = pluginRegistry.getRuntime(args.pluginId);
   if (!rt) {
@@ -85,6 +90,11 @@ export const resolveUrl = async (args: PluginResolveUrlArgs): Promise<MusicUrlRe
     musicInfo: args.musicInfo,
   };
   try {
+    pluginLog.debug("resolveUrl request", {
+      pluginId: args.pluginId,
+      source: params.source,
+      quality: params.quality,
+    });
     return await callOn<MusicUrlRes>(rt, "musicUrl", params, ACTION_TIMEOUTS.musicUrl);
   } catch (err) {
     pluginLog.warn("resolveUrl rejected", args.pluginId, (err as Error)?.message);

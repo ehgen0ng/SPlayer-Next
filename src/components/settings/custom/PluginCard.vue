@@ -48,14 +48,14 @@ const menuItems = computed<DropdownMenuItem[]>(() => [
     key: "check",
     label: t("settings.plugins.checkUpdate"),
     icon: markRaw(IconRefreshCw),
-    show: !!props.info.manifest.updateUrl,
+    show: !!(props.info.manifest.sourceUrl || props.info.manifest.updateUrl),
     disabled: props.checking,
   },
   {
     key: "uninstall",
     label: t("settings.plugins.uninstall"),
     icon: markRaw(IconTrash2),
-    separator: !!props.info.manifest.updateUrl,
+    separator: !!(props.info.manifest.sourceUrl || props.info.manifest.updateUrl),
   },
 ]);
 

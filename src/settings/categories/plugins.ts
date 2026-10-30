@@ -29,7 +29,12 @@ const pluginsCategory: SettingCategory = {
           type: "custom",
           component: PluginList,
           fullWidth: true,
-          keywords: ["settings.plugins.uninstall", "settings.plugins.install"],
+          keywords: [
+            "settings.plugins.uninstall",
+            "settings.plugins.install",
+            "settings.plugins.sort",
+            "settings.plugins.autoSort",
+          ],
         },
       ],
     },

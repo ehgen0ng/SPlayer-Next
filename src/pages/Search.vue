@@ -2,7 +2,7 @@
 defineOptions({ name: "SearchPage" });
 
 import type { PlaybackContext, Track } from "@shared/types/player";
-import { ALL_PLATFORMS, PLATFORM_SHORT_NAME, type Platform } from "@shared/types/platform";
+import { PLATFORM_SHORT_NAME, type Platform } from "@shared/types/platform";
 import type { CoverItem } from "@/types/artist";
 import { searchSongs, searchAlbums, searchArtists, searchPlaylists } from "@/apis/search";
 import { useStatusStore } from "@/stores/status";
@@ -35,7 +35,10 @@ const tabs = computed(() => [
 ]);
 
 const platformTabs = computed(() => [
-  ...ALL_PLATFORMS.map((key) => ({ key, label: PLATFORM_SHORT_NAME[key] })),
+  ...(["qqmusic", "kugou", "netease"] as const).map((key) => ({
+    key,
+    label: PLATFORM_SHORT_NAME[key],
+  })),
   ...(pluginSources.value.length ? [{ key: "plugin", label: t("search.plugins") }] : []),
 ]);
 const pluginSources = computed(() => {

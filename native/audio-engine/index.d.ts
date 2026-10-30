@@ -454,6 +454,13 @@ export interface JsTrackTags {
  */
 export declare function makeImageThumbnail(data: Buffer, maxSize: number): Promise<Buffer>
 
+/**
+ * 独立读取音源元数据，不创建输出流或修改当前播放状态
+ * @param source - 音频文件路径或网络地址
+ * @returns 音源原始元数据
+ */
+export declare function probeAudioSource(source: string): Promise<JsMusicMetadata>
+
 /** 读取文件的可编辑标签（异步，阻塞 IO 在 tokio 阻塞线程执行） */
 export declare function readTrackTags(path: string): Promise<JsTrackTags>
 

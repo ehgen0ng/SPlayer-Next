@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { useUserStore } from "@/stores/user";
+import { useQQMusicStore } from "@/stores/qqmusic";
+import { useStatusStore } from "@/stores/status";
 import { dialog } from "@/composables/useDialog";
 import { toast } from "@/composables/useToast";
 import vipImg from "@/assets/images/vip.png";
 import IconLucideListMusic from "~icons/lucide/list-music";
-import IconLucideDisc3 from "~icons/lucide/disc-3";
-import IconLucideUserRound from "~icons/lucide/user-round";
+import IconMaterialSymbolsFavoriteOutlineRounded from "~icons/material-symbols/favorite-outline-rounded";
 
 const { t } = useI18n();
 const router = useRouter();
-const user = useUserStore();
+const user = useQQMusicStore();
 
 const loginOpen = ref(false);
 const popoverOpen = ref(false);
+const status = useStatusStore();
 
 /** 启动、恢复窗口及可见期间校验凭据 */
 onMounted(() => {
@@ -30,7 +31,7 @@ useIntervalFn(
   5 * 60 * 1000,
 );
 
-const isVip = computed(() => !!user.profile?.vipType && user.profile.vipType !== 0);
+const isVip = computed(() => !!user.profile?.isVip);
 
 /** 收藏计数 */
 const stats = computed(() => [
@@ -38,33 +39,34 @@ const stats = computed(() => [
     key: "playlist" as const,
     label: t("collection.playlist"),
     icon: markRaw(IconLucideListMusic),
-    value:
-      (user.subcount.createdPlaylistCount || 0) + (user.subcount.subPlaylistCount || 0) ||
-      user.playlists.length,
+    value: user.createdPlaylists.length + user.subscribedPlaylists.length,
   },
   {
-    key: "album" as const,
-    label: t("collection.album"),
-    icon: markRaw(IconLucideDisc3),
-    value: user.albums.length,
-  },
-  {
-    key: "artist" as const,
-    label: t("artist.label"),
-    icon: markRaw(IconLucideUserRound),
-    value: user.subcount.artistCount ?? user.artists.length,
+    key: "liked" as const,
+    label: t("liked.title"),
+    icon: markRaw(IconMaterialSymbolsFavoriteOutlineRounded),
+    value: user.likedPlaylistTracks.length,
   },
 ]);
 
+/** 打开 QQ 登录弹窗 */
 const onTriggerClick = (): void => {
   if (!user.isLoggedIn) loginOpen.value = true;
 };
 
-const handleStatClick = (key: "playlist" | "album" | "artist"): void => {
+/**
+ * 打开 QQ 账号收藏入口
+ * @param key - 歌单或喜欢歌曲
+ */
+const handleStatClick = (key: "playlist" | "liked"): void => {
   popoverOpen.value = false;
-  router.push({ path: "/favorites", query: { tab: key } });
+  if (key === "liked") {
+    status.likedPageTab = "online";
+    router.push("/liked");
+  } else router.push({ path: "/favorites", query: { tab: key } });
 };
 
+/** 退出顶部入口对应的 QQ 音乐账号 */
 const handleLogout = async (): Promise<void> => {
   popoverOpen.value = false;
   const ok = await dialog.confirm({
@@ -131,21 +133,16 @@ const handleLogout = async (): Promise<void> => {
       <span class="w-full text-sm font-semibold text-on-surface text-center truncate">
         {{ user.profile?.nickname || t("login.unknownUser") }}
       </span>
-      <div v-if="user.level !== undefined || isVip" class="flex items-center gap-1.5">
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs text-on-surface-variant">QM</span>
         <span
-          v-if="user.level !== undefined"
+          v-if="user.profile?.vipLevel"
           class="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold leading-none bg-amber-500/15 text-amber-600 dark:text-amber-400 tabular-nums"
         >
-          Lv.{{ user.level }}
+          Lv.{{ user.profile.vipLevel }}
         </span>
         <img v-if="isVip" :src="vipImg" alt="VIP" class="h-4 shrink-0" />
       </div>
-      <span
-        v-if="user.profile?.signature"
-        class="text-xs text-on-surface-variant text-center line-clamp-2"
-      >
-        {{ user.profile.signature }}
-      </span>
       <SDivider class="w-full" />
       <!-- 收藏计数 -->
       <div class="w-full flex items-stretch justify-around gap-1">

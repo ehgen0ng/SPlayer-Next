@@ -39,6 +39,19 @@ const otherCategory: SettingCategory = {
             "settings.platformLogin.manualCookie",
           ],
         },
+        {
+          key: "ncmAccount",
+          type: "custom",
+          component: PlatformAccount,
+          componentProps: { platform: "netease" },
+          fullWidth: true,
+          descriptionKey: "settings.platformLogin.desc",
+          keywords: [
+            "settings.platformLogin.title",
+            "settings.platformLogin.loginQr",
+            "settings.platformLogin.manualCookie",
+          ],
+        },
       ],
     },
     {

@@ -105,6 +105,27 @@ test("Nightly 版只发布 nightly 清单", () => {
   }
 });
 
+test("Fork 版合并多架构清单且不生成其他通道别名", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "splayer-release-fork-"));
+  try {
+    const src = path.join(root, "artifacts");
+    const out = path.join(root, "out");
+    const version = "1.2.1-fork.1";
+    createFixture(src, version, "fork");
+    prepareReleaseAssets(src, out, version);
+    for (const suffix of ["", "-mac", "-linux", "-linux-arm64"]) {
+      const manifest = yaml.load(fs.readFileSync(path.join(out, `fork${suffix}.yml`), "utf8"));
+      assert.equal(manifest.version, version);
+      assert.equal(manifest.files.length, suffix.startsWith("-linux") ? 1 : 2);
+      for (const channel of ["latest", "alpha", "beta", "nightly"]) {
+        assert.equal(fs.existsSync(path.join(out, `${channel}${suffix}.yml`)), false);
+      }
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("拒绝未支持的预发布通道", () => {
   assert.throws(() => resolveChannel("1.3.0-rc.1"), /不支持的预发布版本格式/);
 });

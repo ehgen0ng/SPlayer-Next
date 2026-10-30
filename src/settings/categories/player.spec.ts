@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   player: { preloadNextTrack: false, transitionMode: "none" },
   confirm: vi.fn(),
   setSystem: vi.fn(),
+  reload: vi.fn(),
 }));
 vi.mock("@/stores/settings", () => ({
   useSettingsStore: () => ({
@@ -32,9 +33,11 @@ vi.mock("@/settings/useSettingModel", () => ({
 vi.mock("@/components/settings/custom/DeviceSelector.vue", () => ({ default: {} }));
 vi.mock("~icons/lucide/play", () => ({ default: {} }));
 vi.mock("@/utils/config", () => ({ isWin: true }));
-vi.mock("@/core/player", () => ({ getActiveDeviceId: vi.fn() }));
+vi.mock("@/core/player", () => ({ getActiveDeviceId: vi.fn(), reloadCurrentTrack: mocks.reload }));
 vi.mock("@/services/deviceVolume", () => ({ setDeviceVolume: vi.fn() }));
-vi.mock("@/stores/status", () => ({ useStatusStore: () => ({ volume: 1 }) }));
+vi.mock("@/stores/status", () => ({
+  useStatusStore: () => ({ volume: 1, currentTrack: { source: "qqmusic" } }),
+}));
 
 const item = playerCategory
   .sections!.flatMap((section) => section.items)
@@ -51,6 +54,18 @@ const createButtonStub = (value: boolean | string) =>
       () =>
         h("button", { onClick: () => emit("update:modelValue", value) }, String(value)),
   });
+
+describe("切换播放音源", () => {
+  it.each(["preferPluginSource", "songLevel"])("修改 %s 后重新解析当前歌曲", async (key) => {
+    mocks.reload.mockClear();
+    mocks.reload.mockResolvedValue(true);
+    const setting = playerCategory
+      .sections!.flatMap((section) => section.items)
+      .find((item) => item.key === key)!;
+    await setting.action?.(key === "songLevel" ? "lossless" : true);
+    expect(mocks.reload).toHaveBeenCalledOnce();
+  });
+});
 
 describe("开启预载的缓存确认", () => {
   beforeEach(() => {

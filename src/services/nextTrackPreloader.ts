@@ -59,6 +59,7 @@ const buildContextKey = (track: Track): string => {
     track.cueStartMs ?? "",
     track.cueEndMs ?? "",
     settings.player.songLevel,
+    settings.player.preferPluginSource,
     settings.player.transitionMode,
     settings.player.transitionPreference,
     ...(settings.player.transitionMode === "automix"
@@ -66,7 +67,7 @@ const buildContextKey = (track: Track): string => {
       : []),
     settings.player.allowTrialPlay,
     streaming.activeServerId ?? "",
-    plugins.list
+    plugins.orderedList
       .map((plugin) =>
         JSON.stringify([
           plugin.manifest.id,
@@ -287,7 +288,11 @@ export const scheduleNextTrackPreload = (): void => {
         invalidateNextTrackPreload();
         return;
       }
-      if (source.cacheRequest) {
+      // 插件优先时在线地址尚未经过解码校验，缓存留到正式播放确认音质后再写
+      const pendingQualityCheck =
+        settings.player.preferPluginSource &&
+        (source.provider === "plugin" || source.provider === "official");
+      if (source.cacheRequest && !pendingQualityCheck) {
         const cachedPath = await source.cacheRequest(id, abort.signal);
         if (token !== currentToken) return;
         if (cachedPath) source = { source: cachedPath, fromCache: true, provider: "cache" };
@@ -354,6 +359,7 @@ export const installNextTrackPreloadWatchers = (): void => {
       settings.system.cache.songCache.enabled,
       settings.system.cache.songCache.cacheStreaming,
       settings.player.songLevel,
+      settings.player.preferPluginSource,
       settings.player.allowTrialPlay,
       status.playIndex,
       status.state,
@@ -371,7 +377,7 @@ export const installNextTrackPreloadWatchers = (): void => {
       settings.system.lyric.enableOnlineTTMLLyric,
       settings.system.localLyric.enableLocalTTMLOverride,
       settings.system.localLyric.repoDir,
-      plugins.list
+      plugins.orderedList
         .map((plugin) =>
           JSON.stringify([
             plugin.manifest.id,

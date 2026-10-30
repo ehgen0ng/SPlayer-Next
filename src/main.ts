@@ -9,6 +9,7 @@ import i18n from "./i18n";
 import { useThemeStore } from "./stores/theme";
 import { useSettingsStore } from "./stores/settings";
 import { useHotkeyStore } from "./stores/hotkey";
+import { useUserStore } from "./stores/user";
 import { initPlayer, playFiles, restoreLastTrack } from "./core/player";
 import { handleOrpheus } from "./services/orpheus";
 import { installHotkeyManager } from "./core/hotkey/manager";
@@ -62,6 +63,7 @@ export const mountApplication = async (): Promise<void> => {
 
 /** 启动层退出后恢复播放和快捷键 */
 export const startApplication = (): void => {
+  void useUserStore().fetchStatus();
   void bootstrapPlayback().catch(console.error);
   useHotkeyStore()
     .init()

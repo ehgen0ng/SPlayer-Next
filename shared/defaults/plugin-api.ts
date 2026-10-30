@@ -77,12 +77,46 @@ export const PluginErrorCodes = {
   PERMISSION_DENIED: "PLUGIN_PERMISSION_DENIED",
 } as const;
 
+/** 随应用提供的插件，按初始音源优先级排列 */
+export const BUNDLED_PLUGINS = [
+  {
+    id: "hywmusic_",
+    sourceUrl: "https://raw.githubusercontent.com/pdone/lx-music-source/main/hyw/latest.js",
+  },
+  {
+    id: "dc000795",
+    sourceUrl: "https://raw.githubusercontent.com/pdone/lx-music-source/main/jiexiang/latest.js",
+  },
+  {
+    id: "efd60b19",
+    sourceUrl: "https://raw.githubusercontent.com/pdone/lx-music-source/main/helloworld/latest.js",
+  },
+  {
+    id: "api-cf",
+    sourceUrl: "https://raw.githubusercontent.com/pdone/lx-music-source/main/juhe/latest.js",
+  },
+  {
+    id: "b37f2493",
+    sourceUrl: "https://raw.githubusercontent.com/pdone/lx-music-source/main/xinghai/latest.js",
+  },
+  {
+    id: "1b6675db",
+    sourceUrl: "https://raw.githubusercontent.com/pdone/lx-music-source/main/huanyin/latest.js",
+  },
+  {
+    id: "9f4a75f8",
+    sourceUrl: "https://raw.githubusercontent.com/pdone/lx-music-source/main/qdy/latest.js",
+  },
+] as const;
+
 /** 默认插件配置 */
 export const defaultPluginsConfig: PluginsConfig = {
   permissions: {},
   enabled: {},
   priority: {
-    musicUrl: [],
+    musicUrl: BUNDLED_PLUGINS.map((plugin) => plugin.id),
   },
+  autoSortMusicSources: true,
+  musicSourceSuccesses: {},
   perPlugin: {},
 };

@@ -189,6 +189,18 @@ const api = {
     getStatus: () => ipcRenderer.invoke("player:getStatus"),
     // 获取当前真实的音频流与输出参数
     getStreamInfo: () => ipcRenderer.invoke("player:getStreamInfo"),
+    /**
+     * 查询实际播放文件的字节数
+     * @param source - 本地路径或 HTTP 地址
+     * @returns 文件大小查询结果
+     */
+    getSourceSize: (source: string) => ipcRenderer.invoke("player:getSourceSize", source),
+    /**
+     * 独立探测音源的原始音质
+     * @param source - 本地路径或 HTTP 地址
+     * @returns 音质探测结果
+     */
+    probeSource: (source: string) => ipcRenderer.invoke("player:probeSource", source),
     // 获取 FFT 频谱数据
     getFftData: () => ipcRenderer.invoke("player:getFftData"),
     // 启用/禁用 FFT 频谱推送

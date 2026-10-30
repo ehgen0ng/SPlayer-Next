@@ -6,6 +6,8 @@ import type { ContentScope } from "@/types/collection";
 import type { DropdownMenuItem } from "@/components/ui/SDropdownMenu.vue";
 import { useLibraryStore } from "@/stores/library";
 import { useUserStore } from "@/stores/user";
+import { useQQMusicStore } from "@/stores/qqmusic";
+import { useOnlineLibrary } from "@/composables/useOnlineLibrary";
 import { useStatusStore } from "@/stores/status";
 import SongList from "@/components/list/SongList.vue";
 import * as player from "@/core/player";
@@ -15,17 +17,19 @@ import IconLucideRefreshCw from "~icons/lucide/refresh-cw";
 const { t } = useI18n();
 const library = useLibraryStore();
 const user = useUserStore();
+const qqmusic = useQQMusicStore();
+const online = useOnlineLibrary();
 const status = useStatusStore();
 
 /** 当前 tab */
 const tab = computed({
   get: () => status.likedPageTab,
-  set: (v: ContentScope) => (status.likedPageTab = v),
+  set: (value: ContentScope) => (status.likedPageTab = value),
 });
 
 const tabs = computed(() => [
-  { key: "local", label: t("liked.tabs.local") },
   { key: "online", label: t("liked.tabs.online") },
+  { key: "local", label: t("liked.tabs.local") },
 ]);
 
 const searchQuery = ref("");
@@ -42,35 +46,27 @@ const localTracks = computed<Track[]>(() => {
 });
 
 watch(
-  () => [tab.value, user.isLoggedIn, user.likedPlaylistId] as const,
-  ([nextTab, loggedIn, plId]) => {
-    if (nextTab !== "online" || !loggedIn || !plId) return;
-    user.ensureLikedPlaylist();
+  () =>
+    [tab.value, online.isLoggedIn.value, user.likedPlaylistId, qqmusic.profile?.userId] as const,
+  ([nextTab, loggedIn]) => {
+    if (nextTab !== "online" || !loggedIn) return;
+    void Promise.all([qqmusic.ensureLikedPlaylist(), user.ensureLikedPlaylist()]);
   },
   { immediate: true },
 );
 
 /** 当前 tab 的曲目 */
 const currentTracks = computed<Track[]>(() =>
-  tab.value === "local" ? localTracks.value : user.likedPlaylistTracks,
+  tab.value === "local" ? localTracks.value : online.likedPlaylistTracks.value,
 );
 
-const playbackContext = computed<PlaybackContext | undefined>(() => {
-  if (tab.value === "local") {
-    return {
-      originId: "liked",
-      originType: "page",
-      originName: t("liked.title"),
-    };
-  }
-  if (!user.likedPlaylistId) return undefined;
-  return {
-    provider: "netease",
-    originId: user.likedPlaylistId,
-    originType: "playlist",
-    originName: t("liked.title"),
-  };
-});
+const onlineSource = computed(() => (qqmusic.isLoggedIn ? "qqmusic" : "netease"));
+
+const playbackContext = computed<PlaybackContext>(() => ({
+  originId: "liked",
+  originType: "page",
+  originName: t("liked.title"),
+}));
 
 const handlePlayAll = (): void => {
   if (currentTracks.value.length === 0) return;
@@ -101,9 +97,13 @@ const moreMenuItems = computed<DropdownMenuItem[]>(() => {
   return items;
 });
 
+/**
+ * 刷新在线收藏或开启批量管理
+ * @param key - 菜单项标识
+ */
 const handleMoreMenu = (key: string): void => {
   if (key === "refresh") {
-    user.ensureLikedPlaylist(true);
+    void Promise.all([qqmusic.loadContent(), user.ensureLikedPlaylist(true)]);
   } else if (key === "batch") {
     songListRef.value?.enterBatch();
   }
@@ -168,6 +168,9 @@ const handleMoreMenu = (key: string): void => {
           </div>
         </div>
       </div>
+      <SAlert v-if="tab === 'online' && qqmusic.error" type="warning" class="mt-2">
+        QM：{{ qqmusic.error }}
+      </SAlert>
     </div>
     <!-- 列表 -->
     <Transition name="fade" mode="out-in" :duration="150">
@@ -195,7 +198,7 @@ const handleMoreMenu = (key: string): void => {
       </div>
       <!-- 在线 tab -->
       <div
-        v-else-if="tab === 'online' && !user.isLoggedIn"
+        v-else-if="tab === 'online' && !online.isLoggedIn.value"
         key="online-login"
         class="flex-1 flex items-center justify-center"
       >
@@ -205,24 +208,23 @@ const handleMoreMenu = (key: string): void => {
         </div>
       </div>
       <div
-        v-else-if="tab === 'online' && user.likedPlaylistTracks.length > 0"
+        v-else-if="tab === 'online' && online.likedPlaylistTracks.value.length > 0"
         key="online-list"
         class="flex-1 min-h-0"
       >
         <SongList
           ref="songListRef"
-          :items="user.likedPlaylistTracks"
+          :items="online.likedPlaylistTracks.value"
           :search-query="searchQuery"
-          source="netease"
-          :collection-id="user.likedPlaylistId ?? undefined"
+          :source="onlineSource"
           :playback-context="playbackContext"
-          collection-type="playlist"
+          show-source
           sort-key="liked.online"
           enable-sort
         />
       </div>
       <div
-        v-else-if="tab === 'online' && user.likedPlaylistLoading"
+        v-else-if="tab === 'online' && online.likedPlaylistLoading.value"
         key="online-loading"
         class="flex-1 flex items-center justify-center"
       >

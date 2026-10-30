@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PLATFORM_SHORT_NAME } from "@shared/types/platform";
 import type { SMenuItem } from "@/components/ui/SMenu.vue";
 import type { SSelectOption } from "@/components/ui/SSelect.vue";
 import type { DropdownMenuItem } from "@/components/ui/SDropdownMenu.vue";
@@ -9,6 +10,8 @@ import { useSettingsStore } from "@/stores/settings";
 import { useStatusStore } from "@/stores/status";
 import { usePlaylistStore } from "@/stores/playlist";
 import { useUserStore } from "@/stores/user";
+import { useQQMusicStore } from "@/stores/qqmusic";
+import { useOnlineLibrary } from "@/composables/useOnlineLibrary";
 import { useDownloadStore } from "@/stores/download";
 import { useHeartMode } from "@/composables/useHeartMode";
 import { useResponsiveLayout } from "@/composables/useResponsiveLayout";
@@ -30,10 +33,20 @@ const { appearance, system: systemSettings } = useSettingsStore();
 const status = useStatusStore();
 const playlistStore = usePlaylistStore();
 const userStore = useUserStore();
+const qqmusic = useQQMusicStore();
+const online = useOnlineLibrary();
 const downloadStore = useDownloadStore();
 const { enterHeartMode } = useHeartMode();
 const { sidebarCollapsed } = useResponsiveLayout();
 const settingsDialog = useSettingsDialog();
+
+watch(
+  () => qqmusic.isLoggedIn,
+  (loggedIn, previous) => {
+    if (loggedIn && !previous) status.myPlaylistSource = "online";
+  },
+  { immediate: true },
+);
 
 /** 心动模式 */
 const toggleHeartMode = useThrottleFn((): void => {
@@ -119,9 +132,9 @@ const myPlaylistItems = computed<SMenuItem[]>(() => {
         cover: pl.cover ?? "",
         showCover,
       }))
-    : userStore.createdPlaylists.slice(1).map((pl) => ({
-        key: `/collection/netease/playlist/${pl.id}`,
-        label: pl.name,
+    : online.createdPlaylists.value.map((pl) => ({
+        key: `/collection/${pl.source}/playlist/${encodeURIComponent(pl.id ?? "")}`,
+        label: `${pl.name} · ${PLATFORM_SHORT_NAME[pl.source]}`,
         icon: markRaw(IconLucideListMusic),
         cover: pl.cover ?? "",
         showCover,
@@ -136,9 +149,9 @@ const myPlaylistItems = computed<SMenuItem[]>(() => {
 const subscribedItems = computed<SMenuItem[]>(() => {
   const showCover = appearance.sidebarPlaylistCover;
   const hidden = hiddenKeys.value;
-  const items: SMenuItem[] = userStore.subscribedPlaylists.map((pl) => ({
-    key: `/collection/netease/playlist/${pl.id}`,
-    label: pl.name,
+  const items: SMenuItem[] = online.subscribedPlaylists.value.map((pl) => ({
+    key: `/collection/${pl.source}/playlist/${encodeURIComponent(pl.id ?? "")}`,
+    label: `${pl.name} · ${PLATFORM_SHORT_NAME[pl.source]}`,
     icon: markRaw(IconLucideListMusic),
     cover: pl.cover ?? "",
     showCover,
@@ -304,9 +317,12 @@ const onSelect = (key: string) => {
  * 歌单存档收敛：删除歌单或在线列表刷新后，剔除不再存在的歌单键，
  * 防止隐藏/顺序存档随时间无限累积残留
  * @param existing - 当前存在的歌单路由键集合
+ * @param sources - 已完成加载、可以清理的来源
  */
-const prunePlaylistArchive = (existing: ReadonlySet<string>): void => {
-  const isStale = (key: string): boolean => key.startsWith("/collection/") && !existing.has(key);
+const prunePlaylistArchive = (existing: ReadonlySet<string>, sources: string[]): void => {
+  const isStale = (key: string): boolean =>
+    sources.some((source) => key.startsWith(`/collection/${source}/playlist/`)) &&
+    !existing.has(key);
   const hiddenKeysNext = appearance.sidebarHiddenKeys.filter((key) => !isStale(key));
   if (hiddenKeysNext.length !== appearance.sidebarHiddenKeys.length)
     appearance.sidebarHiddenKeys = hiddenKeysNext;
@@ -327,15 +343,28 @@ const prunePlaylistArchive = (existing: ReadonlySet<string>): void => {
 // 本地歌单加载完成后即可收敛
 // 在线部分仅在已登录且列表非空时清理
 watch(
-  () => [playlistStore.playlists, userStore.isLoggedIn ? userStore.playlists : null] as const,
-  ([localLists, onlineLists]) => {
+  () =>
+    [
+      playlistStore.playlists,
+      playlistStore.initialized,
+      userStore.playlists,
+      online.createdPlaylists.value,
+      online.subscribedPlaylists.value,
+      qqmusic.initialized,
+    ] as const,
+  ([localLists]) => {
     const existing = new Set<string>();
     for (const pl of localLists) existing.add(`/collection/local/playlist/${pl.id}`);
-    if (onlineLists && onlineLists.length > 0) {
-      for (const pl of onlineLists) existing.add(`/collection/netease/playlist/${pl.id}`);
+    for (const pl of [...online.createdPlaylists.value, ...online.subscribedPlaylists.value]) {
+      existing.add(`/collection/${pl.source}/playlist/${encodeURIComponent(pl.id ?? "")}`);
     }
-    if (existing.size === 0) return;
-    prunePlaylistArchive(existing);
+    if (userStore.likedPlaylistId)
+      existing.add(`/collection/netease/playlist/${userStore.likedPlaylistId}`);
+    const sources: string[] = [];
+    if (playlistStore.initialized) sources.push("local");
+    if (userStore.isLoggedIn && userStore.playlists.length > 0) sources.push("netease");
+    if (qqmusic.initialized && !qqmusic.error) sources.push("qqmusic");
+    prunePlaylistArchive(existing, sources);
   },
   { deep: false },
 );

@@ -21,7 +21,7 @@ export const defaultSystemConfig: SystemConfig = {
     volume: 1,
     loudnessNormalization: false,
     audioOutputMode: "shared",
-    keepScreenAwake: false,
+    keepScreenAwake: true,
     equalizer: {
       enabled: false,
       preset: "flat",
@@ -97,7 +97,7 @@ export const defaultSystemConfig: SystemConfig = {
     fontFamily: "",
   },
   lyric: {
-    enableOnlineTTMLLyric: false,
+    enableOnlineTTMLLyric: true,
     amllDbServer: "https://amlldb.bikonoo.com/%p/%s.ttml",
   },
   localLyric: {
@@ -107,16 +107,16 @@ export const defaultSystemConfig: SystemConfig = {
   cache: {
     dir: null,
     songCache: {
-      enabled: false,
-      cacheStreaming: false,
+      enabled: true,
+      cacheStreaming: true,
       sizeLimitGb: 10,
     },
   },
   download: {
     enabled: false,
     dir: null,
-    quality: "lossless",
-    usePlaybackForDownload: false,
+    quality: "hi-res",
+    usePlaybackForDownload: true,
     fileTemplate: "{artist} - {title}",
     folderScheme: "none",
     overwritePolicy: "rename",
@@ -128,7 +128,7 @@ export const defaultSystemConfig: SystemConfig = {
     lyricFileFormat: "enhanced-lrc",
   },
   streaming: {
-    enabled: true,
+    enabled: false,
   },
   lastfm: {
     enabled: false,

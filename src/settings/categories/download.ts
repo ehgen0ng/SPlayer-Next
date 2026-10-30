@@ -38,13 +38,13 @@ const downloadCategory: SettingCategory = {
             { value: "sq", label: "SQ" },
             { value: "lq", label: "LQ" },
           ],
-          defaultValue: "lossless",
+          defaultValue: "hi-res",
         },
         {
           key: "downloadUsePlayback",
           type: "switch",
           binding: { store: "settings", path: "system.download.usePlaybackForDownload" },
-          defaultValue: false,
+          defaultValue: true,
         },
         {
           key: "downloadFileTemplate",

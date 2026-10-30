@@ -54,3 +54,12 @@ export interface QMPlaylistItem {
   trackCount?: number;
   playCount?: number;
 }
+
+/** QQ 账号歌单分页结果 */
+export interface QMUserPlaylistsResponse {
+  code: number;
+  userId: string;
+  playlists: QMPlaylistItem[];
+  hasMore: boolean;
+  nextOffset: number;
+}

@@ -16,8 +16,13 @@ const mocks = vi.hoisted(() => ({
   mediaEvent: (_event: { type: string; positionMs?: number }) => {},
   scrobbleRestart: vi.fn(),
   lastfmRestart: vi.fn(),
+  fetch: vi.fn(),
+  stat: vi.fn(),
+  probe: vi.fn(),
 }));
+vi.mock("node:fs/promises", () => ({ stat: mocks.stat }));
 vi.mock("electron", () => ({
+  net: { fetch: mocks.fetch },
   ipcMain: {
     handle: (name: string, callback: (...args: unknown[]) => unknown) =>
       mocks.handlers.set(name, callback),
@@ -40,6 +45,7 @@ vi.mock("@main/services/engine", () => {
     getStatus: () => ({ state: "playing" }),
   };
   return {
+    getEngine: () => ({ probeAudioSource: mocks.probe }),
     getPlayer: () => player,
     onPlayerCreated: vi.fn(),
     onPlayerReset: (callback: () => void) => mocks.reset.push(callback),
@@ -138,8 +144,78 @@ describe("交接响应的主进程竞态保护", () => {
     mocks.load.mockResolvedValue(meta);
     mocks.streamingPrepare.mockReset().mockResolvedValue(undefined);
     mocks.streamingStop.mockResolvedValue(undefined);
+    mocks.fetch.mockReset();
+    mocks.stat.mockReset();
+    mocks.probe.mockReset();
     const { registerPlayerIpc } = await import("./player");
     registerPlayerIpc();
+  });
+
+  it("独立探测返回原文件音质且不改变当前播放", async () => {
+    mocks.probe.mockResolvedValue({
+      originalSampleRate: 44100,
+      sampleRate: 48000,
+      channels: 6,
+      bitsPerSample: 16,
+      bitRate: 2595000,
+      codec: "flac",
+    });
+    expect(await invoke("player:probeSource", "https://music.example/file.flac")).toEqual({
+      success: true,
+      data: { sampleRate: 44100, channels: 6, bitsPerSample: 16, bitRate: 2595000, codec: "flac" },
+    });
+    expect(mocks.load).not.toHaveBeenCalled();
+    expect(mocks.stop).not.toHaveBeenCalled();
+    expect(mocks.metadata).not.toHaveBeenCalled();
+  });
+
+  it.each<{ status: number; headers: Record<string, string> }>([
+    { status: 206, headers: { "content-range": "bytes 0-0/84502272", "content-length": "1" } },
+    { status: 200, headers: { "content-length": "84502272" } },
+  ])("远端大小使用完整文件长度并关闭响应体：$status", async ({ status, headers }) => {
+    const response = new Response("audio", { status, headers });
+    const cancel = vi.spyOn(response.body!, "cancel");
+    const read = vi.spyOn(response, "arrayBuffer");
+    mocks.fetch.mockResolvedValue(response);
+    expect(await invoke("player:getSourceSize", "https://music.example/song.flac")).toEqual({
+      success: true,
+      data: 84502272,
+    });
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      "https://music.example/song.flac",
+      expect.objectContaining({ headers: { Range: "bytes=0-0", "Accept-Encoding": "identity" } }),
+    );
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it.each<{ status: number; headers: Record<string, string> }>([
+    { status: 206, headers: { "content-length": "1" } },
+    { status: 200, headers: { "content-length": "800", "content-encoding": "gzip" } },
+    { status: 403, headers: { "content-length": "800" } },
+  ])("未知总长、压缩或错误响应不会显示错误的文件大小：%j", async (init) => {
+    mocks.fetch.mockResolvedValue(new Response("unknown", init));
+    expect(await invoke("player:getSourceSize", "https://music.example/song.flac")).toEqual({
+      success: true,
+      data: undefined,
+    });
+  });
+
+  it("本地文件读取实际大小，虚拟音源和失败查询返回未知", async () => {
+    mocks.stat.mockResolvedValue({ size: 84502272, isFile: () => true });
+    expect(await invoke("player:getSourceSize", "/music/song.flac")).toEqual({
+      success: true,
+      data: 84502272,
+    });
+    expect(await invoke("player:getSourceSize", "streaming://server/song")).toEqual({
+      success: true,
+      data: undefined,
+    });
+    mocks.fetch.mockRejectedValue(new Error("unavailable"));
+    expect(await invoke("player:getSourceSize", "https://music.example/song.flac")).toEqual({
+      success: true,
+      data: undefined,
+    });
   });
 
   it.each(["停止", "跳转", "重置", "加载新曲", "系统停止", "系统跳转"])(

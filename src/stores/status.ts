@@ -83,11 +83,11 @@ export const useStatusStore = defineStore(
     /** 当前曲目歌词偏移（ms，正值为歌词提前） */
     const lyricOffsetMs = ref(0);
     /** 搜索页选中的平台 */
-    const searchPlatform = ref<Platform>("netease");
+    const searchPlatform = ref<Platform>("qqmusic");
     /** 侧栏「我的歌单」当前展示来源 */
     const myPlaylistSource = ref<ContentScope>("local");
-    /** 「我喜欢的音乐」页当前 tab */
-    const likedPageTab = ref<ContentScope>("local");
+    /** 「我喜欢的音乐」页默认显示在线内容 */
+    const likedPageTab = ref<ContentScope>("online");
     /** 设置弹窗上次手动选择的大分类 */
     const settingsCategory = ref("");
     /** 各列表作用域的排序偏好，仅保存非默认项 */
@@ -200,7 +200,6 @@ export const useStatusStore = defineStore(
         "position",
         "searchPlatform",
         "myPlaylistSource",
-        "likedPageTab",
         "settingsCategory",
         "sortPreferences",
       ],

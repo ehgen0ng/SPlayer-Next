@@ -3,6 +3,7 @@ import type { AudioStreamInfo } from "@shared/types/player";
 import { useMediaStore } from "@/stores/media";
 import { useStatusStore } from "@/stores/status";
 import { useSettingsStore } from "@/stores/settings";
+import { formatFileSize } from "@/utils/format";
 
 const { t } = useI18n();
 const media = useMediaStore();
@@ -11,6 +12,26 @@ const settings = useSettingsStore();
 
 /** 从原生音频引擎读取的真实流与硬件参数 */
 const streamInfo = ref<AudioStreamInfo | null>(null);
+const fileSize = ref<number>();
+
+watch(
+  () => (status.audioInfoOpen && !status.trackLoading ? status.currentSource : null),
+  async (source, _previous, onCleanup) => {
+    fileSize.value = undefined;
+    if (!source) return;
+    let active = true;
+    onCleanup(() => {
+      active = false;
+    });
+    try {
+      const result = await window.api.player.getSourceSize(source);
+      if (active && result.success) fileSize.value = result.data;
+    } catch {
+      // 大小查询失败不影响播放，也不使用歌单里其他音质的大小代替
+    }
+  },
+  { immediate: true },
+);
 
 /** 获取底层真实流信息 */
 const fetchStreamInfo = async () => {
@@ -218,9 +239,22 @@ interface InfoSection {
 /** 分类参数列表 */
 const sections = computed<InfoSection[]>(() => [
   {
-    title: t("quality.outputSection"),
+    title: t("quality.fileSection"),
     items: [
       { label: t("quality.codec"), value: codecText.value },
+      {
+        label: t("quality.fileSize"),
+        value: fileSize.value ? formatFileSize(fileSize.value) : t("quality.unknown"),
+      },
+      { label: t("quality.sampleRate"), value: formatSampleRate(quality.value?.sampleRate) },
+      { label: t("quality.bitDepth"), value: formatBitDepth(quality.value?.bitsPerSample) },
+      { label: t("quality.bitRate"), value: formatBitRate(quality.value?.bitRate) },
+      { label: t("quality.channels"), value: formatChannels(quality.value?.channels) },
+    ],
+  },
+  {
+    title: t("quality.outputSection"),
+    items: [
       { label: t("quality.outputMode"), value: outputModeText.value },
       { label: t("quality.resampling"), value: resamplingStatusText.value },
       { label: t("settings.outputDevice.label"), value: currentDeviceName.value, colSpan: true },

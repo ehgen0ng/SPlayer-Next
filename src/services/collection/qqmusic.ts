@@ -27,7 +27,9 @@ export const loadQQMusicCollection = async (
     return;
   }
   if (type === "playlist") {
-    const { playlist, tracks } = await fetchQQMusicPlaylist(originalId, fallbackName);
+    const { playlist, tracks } = await fetchQQMusicPlaylist(originalId, fallbackName, {
+      signal: options.signal,
+    });
     if (!options.signal?.aborted) {
       options.onUpdate({
         id: playlist.id ?? originalId,

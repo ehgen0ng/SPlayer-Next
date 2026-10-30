@@ -3,7 +3,7 @@
  * 跨渲染层（解析 URL/歌词）与主进程（落盘/写标签）
  */
 
-import type { Track } from "./player";
+import type { AudioQuality, Track } from "./player";
 import type { PluginQuality } from "./plugin";
 
 /** 下载歌词文件保存格式：逐行 LRC / 逐字增强 LRC */
@@ -42,6 +42,10 @@ export interface DownloadRequest {
   declaredFormat?: string;
   /** 已知体积（字节），进度兜底 */
   declaredSize?: number;
+  /** 独立探测得到的实际音质 */
+  resolvedQuality?: AudioQuality;
+  /** 实际档位，与用户请求档位分开保存 */
+  resolvedQualityLevel?: PluginQuality;
   /** 封面原图 URL，主进程按需 fetch 内嵌 */
   coverUrl?: string;
   /** 歌词文本 */
@@ -84,7 +88,15 @@ export interface DownloadProgress {
 
 /** 渲染层回传的解析结果（补全 DownloadRequest 缺省的网络字段，url 必填） */
 export type DownloadResolution = Required<Pick<DownloadRequest, "url">> &
-  Pick<DownloadRequest, "declaredFormat" | "declaredSize" | "lyricText" | "ttmlText">;
+  Pick<
+    DownloadRequest,
+    | "declaredFormat"
+    | "declaredSize"
+    | "resolvedQuality"
+    | "resolvedQualityLevel"
+    | "lyricText"
+    | "ttmlText"
+  >;
 
 /** 主进程 → 渲染层的解析请求载荷（轮到下载但缺少 URL 时下发） */
 export type DownloadResolvePayload = Pick<

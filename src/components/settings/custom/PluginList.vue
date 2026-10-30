@@ -3,12 +3,58 @@ import type { PluginInfo } from "@shared/types/plugin";
 import { usePluginsStore } from "@/stores/plugins";
 import { toast } from "@/composables/useToast";
 import { isExternalUrl, openExternal } from "@/utils/url";
+import { useSortable } from "@vueuse/integrations/useSortable";
 
 defineOptions({ inheritAttrs: false });
 
 const { t } = useI18n();
 const pluginsStore = usePluginsStore();
-const { list, loaded } = storeToRefs(pluginsStore);
+const {
+  orderedList: list,
+  loaded,
+  autoSortMusicSources,
+  musicSourceSuccesses,
+} = storeToRefs(pluginsStore);
+
+const sortOpen = ref(false);
+const sortDraft = shallowRef<PluginInfo[] | null>(null);
+const sortList = computed({
+  get: () => sortDraft.value ?? list.value,
+  set: (value: PluginInfo[]) => (sortDraft.value = value),
+});
+const sortListEl = ref<HTMLElement | null>(null);
+watch(sortOpen, () => {
+  sortDraft.value = null;
+});
+useSortable(sortListEl, sortList, {
+  animation: 150,
+  handle: ".plugin-sort-handle",
+  forceFallback: true,
+  watchElement: true,
+  fallbackClass: "sortable-ghost",
+  onStart: () => {
+    sortDraft.value = [...sortList.value];
+  },
+});
+
+/**
+ * 用按钮调整插件顺序，供键盘操作使用
+ * @param index - 当前插件位置
+ * @param offset - 向前或向后移动一位
+ */
+const movePlugin = (index: number, offset: number): void => {
+  const next = [...sortList.value];
+  const target = index + offset;
+  if (target < 0 || target >= next.length) return;
+  [next[index], next[target]] = [next[target], next[index]];
+  sortList.value = next;
+};
+
+/** 保存手动排序，不改变自动排序开关 */
+const saveOrder = async (): Promise<void> => {
+  await pluginsStore.setOrder(sortList.value.map((info) => info.manifest.id));
+  sortOpen.value = false;
+};
 
 const confirmOpen = ref(false);
 const pendingUninstallId = ref<string | null>(null);
@@ -23,6 +69,7 @@ const detailDialogId = ref<string | null>(null);
 
 onMounted(() => {
   if (!loaded.value) void pluginsStore.load();
+  else pluginsStore.applyAutoOrder();
 });
 
 /** 插件 ready 时声明的设置 schema（配置弹窗用） */
@@ -200,6 +247,32 @@ const refreshMarket = async (): Promise<void> => {
 
     <!-- 已安装 -->
     <div v-if="tab === 'installed'" class="flex flex-col gap-4">
+      <div
+        class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface-panel border border-solid border-outline-variant/15 px-3.5 py-3"
+      >
+        <div class="flex-1 min-w-48">
+          <div class="text-sm font-medium text-on-surface">
+            {{ t("settings.plugins.autoSort") }}
+          </div>
+          <div class="mt-1 text-xs text-on-surface-variant/70">
+            {{ t("settings.plugins.autoSortHint") }}
+          </div>
+        </div>
+        <SSwitch
+          :model-value="autoSortMusicSources"
+          :aria-label="t('settings.plugins.autoSort')"
+          @update:model-value="pluginsStore.setAutoSortMusicSources"
+        />
+        <SButton
+          variant="secondary"
+          size="small"
+          :disabled="list.length < 2"
+          @click="sortOpen = true"
+        >
+          <template #icon><IconLucideArrowUpDown class="size-4" /></template>
+          {{ t("settings.plugins.sort") }}
+        </SButton>
+      </div>
       <!-- 空态 -->
       <div
         v-if="isEmpty"
@@ -232,6 +305,66 @@ const refreshMarket = async (): Promise<void> => {
 
     <!-- 插件市场 -->
     <PluginMarket v-else ref="marketRef" />
+
+    <SDialog
+      v-model:open="sortOpen"
+      :title="t('settings.plugins.sortTitle')"
+      :description="t('settings.plugins.sortHint')"
+      width="480px"
+    >
+      <div ref="sortListEl" class="flex max-h-96 flex-col gap-2 overflow-y-auto">
+        <div
+          v-for="(info, index) in sortList"
+          :key="info.manifest.id"
+          :data-plugin-id="info.manifest.id"
+          class="flex items-center gap-2 rounded-lg bg-surface-panel px-3 py-2"
+        >
+          <span
+            class="plugin-sort-handle flex shrink-0 cursor-grab items-center gap-1 text-on-surface-variant/60 active:cursor-grabbing"
+          >
+            <IconLucideGripVertical class="size-4" />
+            <span class="w-5 text-center text-xs">{{ index + 1 }}</span>
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-sm">{{ info.manifest.name }}</div>
+            <div
+              v-if="musicSourceSuccesses[info.manifest.id]"
+              class="text-xs text-on-surface-variant/70"
+            >
+              {{
+                t("settings.plugins.successCount", {
+                  count: musicSourceSuccesses[info.manifest.id],
+                })
+              }}
+            </div>
+          </div>
+          <SButton
+            variant="text"
+            size="tiny"
+            circle
+            :disabled="index === 0"
+            :aria-label="t('settings.plugins.moveUp')"
+            @click="movePlugin(index, -1)"
+          >
+            <template #icon><IconLucideChevronUp /></template>
+          </SButton>
+          <SButton
+            variant="text"
+            size="tiny"
+            circle
+            :disabled="index === sortList.length - 1"
+            :aria-label="t('settings.plugins.moveDown')"
+            @click="movePlugin(index, 1)"
+          >
+            <template #icon><IconLucideChevronDown /></template>
+          </SButton>
+        </div>
+      </div>
+      <template #footer="{ close }">
+        <SButton variant="secondary" @click="close">{{ t("common.cancel") }}</SButton>
+        <SButton type="primary" @click="saveOrder">{{ t("common.confirm") }}</SButton>
+      </template>
+    </SDialog>
 
     <!-- 发布入口 -->
     <div

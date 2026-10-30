@@ -25,6 +25,7 @@ import type {
   PluginPermissions,
 } from "@shared/types/plugin";
 import {
+  BUNDLED_PLUGINS,
   HOST_API_LEVEL,
   PluginErrorCodes,
   RESTART_MAX_ATTEMPTS,
@@ -45,6 +46,8 @@ const manifestFile = (): string => path.join(pluginsRoot(), "manifest.json");
 
 interface StoredManifest {
   version: 1;
+  /** 完成首次内置插件安装后不再补装，保留用户的卸载选择 */
+  bundledInitialized?: boolean;
   plugins: Record<string, PluginManifest>;
 }
 
@@ -154,7 +157,7 @@ class PluginRegistry extends EventEmitter {
   private hostRestartAttempts = 0;
   private hostRestartTimer: NodeJS.Timeout | null = null;
 
-  /** 应用启动时调用 */
+  /** 首次安装内置插件，再加载并启动用户保留且启用的插件 */
   init(): void {
     ensureDirs();
     pluginHost.setOnHostLost(() => this.handleHostLost());
@@ -162,6 +165,29 @@ class PluginRegistry extends EventEmitter {
       this.hostRestartAttempts = 0;
     });
     const stored = readStored();
+    if (!stored.bundledInitialized) {
+      const bundledDir = app.isPackaged
+        ? path.join(process.resourcesPath, "plugins")
+        : path.join(app.getAppPath(), "resources", "plugins");
+      for (const { id, sourceUrl } of BUNDLED_PLUGINS) {
+        if (stored.plugins[id]) {
+          stored.plugins[id].sourceUrl ??= sourceUrl;
+          continue;
+        }
+        const fileName = `${id}.js`;
+        try {
+          const { source, manifest } = loadScript(path.join(bundledDir, fileName), true, fileName);
+          if (manifest.id !== id) throw new Error(`内置插件标识不匹配: ${id}`);
+          manifest.sourceUrl = sourceUrl;
+          fs.writeFileSync(path.join(scriptsDir(), fileName), source, "utf-8");
+          stored.plugins[id] = manifest;
+        } catch (err) {
+          coreLog.warn(`[plugin] 内置插件 ${id} 安装失败:`, err);
+        }
+      }
+      stored.bundledInitialized = true;
+      writeStored(stored);
+    }
     const enabledMap = store.get("plugins.enabled") as Record<string, boolean>;
 
     // 首先加载 stored manifest
@@ -179,6 +205,8 @@ class PluginRegistry extends EventEmitter {
           id,
           installedAt: storedManifest.installedAt,
           updatedAt: storedManifest.updatedAt,
+          sourceUrl: storedManifest.sourceUrl,
+          updateUrl: fresh.manifest.updateUrl ?? storedManifest.updateUrl,
         };
       } catch (err) {
         coreLog.warn(`[plugin] failed to read ${manifest.fileName}:`, err);
@@ -321,9 +349,10 @@ class PluginRegistry extends EventEmitter {
   /**
    * 从源码安装插件并启动沙箱
    * @param raw - 待安装的脚本源码
+   * @param sourceUrl - URL 导入时的脚本地址
    * @returns 安装后的插件状态
    */
-  async installFromSource(raw: string): Promise<PluginInfo> {
+  async installFromSource(raw: string, sourceUrl?: string): Promise<PluginInfo> {
     ensureDirs();
     const { source, manifest } = loadScript(raw, false);
     // 脚本落盘（明文）
@@ -333,6 +362,7 @@ class PluginRegistry extends EventEmitter {
 
     // 记入 manifest.json
     const stored = readStored();
+    manifest.sourceUrl = sourceUrl ?? stored.plugins[manifest.id]?.sourceUrl;
     stored.plugins[manifest.id] = manifest;
     writeStored(stored);
 
@@ -386,17 +416,22 @@ class PluginRegistry extends EventEmitter {
   }
 
   /**
-   * 检查单个插件是否有新版：拉 @updateUrl 读远端 @version 与本地比对，有则置 updateInfo 并广播
+   * 从导入地址或声明的更新地址检查新版，可在启动时直接安装内置插件更新
    * @param id - 插件 ID
+   * @param installUpdate - 检查到新版后是否直接安装
    * @returns ok 是否成功联网比对；hasUpdate 是否发现新版；plugin 最新信息
    */
-  async checkUpdate(id: string): Promise<{ ok: boolean; hasUpdate: boolean; plugin?: PluginInfo }> {
+  async checkUpdate(
+    id: string,
+    installUpdate = false,
+  ): Promise<{ ok: boolean; hasUpdate: boolean; plugin?: PluginInfo }> {
     const rt = this.runtimes.get(id);
     if (!rt) return { ok: false, hasUpdate: false };
-    const url = rt.manifest.updateUrl;
+    const url = rt.manifest.sourceUrl ?? rt.manifest.updateUrl;
     if (!url) return { ok: false, hasUpdate: false, plugin: this.infoOf(rt) };
 
     const source = await fetchScript(url);
+    if (this.runtimes.get(id) !== rt) return { ok: false, hasUpdate: false };
     const { manifest: remote } = loadScript(source, false);
     // 按身份识别更新，防止 updateUrl 指向其他插件
     const samePlugin = remote.id === id;
@@ -417,17 +452,35 @@ class PluginRegistry extends EventEmitter {
       updatedAt: Date.now(),
     };
     this.setStatus(rt, rt.status);
+    if (installUpdate) {
+      const plugin = await this.applyUpdateFromSource(id, source);
+      return { ok: true, hasUpdate: false, plugin };
+    }
     return { ok: true, hasUpdate: true, plugin: this.infoOf(rt) };
   }
 
-  /** 启动时静默检查所有声明了 @updateUrl 的插件 */
+  /** 启动后检查更新，内置插件直接安装新版，其他插件保留更新提示 */
   async checkAllUpdates(): Promise<void> {
-    const targets = [...this.runtimes.values()].filter((rt) => rt.manifest.updateUrl);
-    await Promise.allSettled(targets.map((rt) => this.checkUpdate(rt.manifest.id)));
+    const targets = [...this.runtimes.values()].filter(
+      (rt) => rt.manifest.updateUrl || rt.manifest.sourceUrl,
+    );
+    const results = await Promise.allSettled(
+      targets.map((rt) =>
+        this.checkUpdate(
+          rt.manifest.id,
+          BUNDLED_PLUGINS.some((plugin) => plugin.id === rt.manifest.id),
+        ),
+      ),
+    );
+    for (const [index, result] of results.entries()) {
+      if (result.status === "rejected") {
+        coreLog.warn(`[plugin] 插件 ${targets[index].manifest.id} 更新检查失败:`, result.reason);
+      }
+    }
   }
 
   /**
-   * 用新源码原地更新插件：保留 id / 启用态 / 用户设置 / 每插件存储
+   * 原子替换新版脚本，保留插件身份、启用状态、用户设置和每插件存储
    * @param id - 现有插件 ID
    * @param rawSource - 新版脚本源码
    * @returns 更新后的插件信息
@@ -449,8 +502,10 @@ class PluginRegistry extends EventEmitter {
     manifest.fileName = `${id}.js`;
     manifest.installedAt = rt.manifest.installedAt;
     manifest.updatedAt = Date.now();
+    manifest.sourceUrl = rt.manifest.sourceUrl;
+    manifest.updateUrl ??= rt.manifest.updateUrl;
 
-    fs.writeFileSync(path.join(scriptsDir(), manifest.fileName), source, "utf-8");
+    atomicWriteSync(path.join(scriptsDir(), manifest.fileName), source);
     const stored = readStored();
     stored.plugins[id] = manifest;
     writeStored(stored);
@@ -609,7 +664,7 @@ class PluginRegistry extends EventEmitter {
         coreLog[level](`[plugin:${id}]`, ...args);
       },
       onUpdateAvailable: (info) => {
-        rt.updateInfo = info;
+        rt.updateInfo = { ...info, updateUrl: rt.manifest.sourceUrl ?? info.updateUrl };
         this.setStatus(rt, rt.status);
       },
       onSourcesUpdate: (sources) => {

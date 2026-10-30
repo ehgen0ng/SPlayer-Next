@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PLATFORM_SHORT_NAME } from "@shared/types/platform";
 import type { Component } from "vue";
 import Sortable from "sortablejs";
 import type { SidebarPlaylistOrder } from "@/types/settings";
@@ -13,7 +14,7 @@ import { SIDEBAR_NAV_META, applySavedOrder } from "@/components/layout/sidebarNa
 import { useSettingsStore } from "@/stores/settings";
 import { useStatusStore } from "@/stores/status";
 import { usePlaylistStore } from "@/stores/playlist";
-import { useUserStore } from "@/stores/user";
+import { useOnlineLibrary } from "@/composables/useOnlineLibrary";
 import { dialog } from "@/composables/useDialog";
 
 defineOptions({ inheritAttrs: false });
@@ -22,7 +23,7 @@ const { t } = useI18n();
 const settings = useSettingsStore();
 const status = useStatusStore();
 const playlistStore = usePlaylistStore();
-const userStore = useUserStore();
+const online = useOnlineLibrary();
 const open = ref(false);
 
 interface EditorGroup {
@@ -232,9 +233,9 @@ const myRows = computed(() => {
           key: `/collection/local/playlist/${pl.id}`,
           title: pl.title,
         }))
-      : userStore.createdPlaylists.slice(1).map((pl) => ({
-          key: `/collection/netease/playlist/${pl.id}`,
-          title: pl.name,
+      : online.createdPlaylists.value.map((pl) => ({
+          key: `/collection/${pl.source}/playlist/${encodeURIComponent(pl.id ?? "")}`,
+          title: `${pl.name} · ${PLATFORM_SHORT_NAME[pl.source]}`,
         }));
   return applySavedOrder(rows, playlistOrder.value[myOrderKey.value]);
 });
@@ -242,9 +243,9 @@ const myRows = computed(() => {
 /** 「收藏的歌单」行（应用工作副本顺序） */
 const subscribedRows = computed(() =>
   applySavedOrder(
-    userStore.subscribedPlaylists.map((pl) => ({
-      key: `/collection/netease/playlist/${pl.id}`,
-      title: pl.name,
+    online.subscribedPlaylists.value.map((pl) => ({
+      key: `/collection/${pl.source}/playlist/${encodeURIComponent(pl.id ?? "")}`,
+      title: `${pl.name} · ${PLATFORM_SHORT_NAME[pl.source]}`,
     })),
     playlistOrder.value.subscribed,
   ),

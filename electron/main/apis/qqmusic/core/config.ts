@@ -10,7 +10,7 @@ export const QM_HEADERS: Record<string, string> = {
   "Content-Type": "application/json",
   "Accept-Encoding": "gzip",
   "User-Agent": "QQMusic 14090008(android 15)",
-  Referer: "https://y.qq.com",
+  Referer: "https://y.qq.com/",
 };
 
 /** 请求体 comm 字段（伪装 Android 客户端） */

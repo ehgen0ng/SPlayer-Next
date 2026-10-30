@@ -20,6 +20,10 @@ const PLATFORM_TO_PLUGIN_SOURCE: Record<Platform, string> = {
 
 /** 解析选项 */
 export interface ResolveTrackSourceOptions {
+  /** 本次换源尝试的音质，省略时使用播放设置 */
+  quality?: QualityLevel;
+  /** 记录本档已经调用的插件，避免同一轮反复请求失败插件 */
+  onPluginAttempt?: (pluginId: string) => void;
   /** 已下载文件加载失败时跳过，继续解析缓存或在线音源 */
   skipDownloaded?: boolean;
   /** 将解析失败原因交给播放流程，供提示和跳曲决策使用 */
@@ -75,14 +79,19 @@ export type OnlineResolveResult =
  * @param track - 待播放曲目
  * @param quality - 请求的音质档位，默认 hq
  * @param skipPluginIds - 本轮音源恢复中已失败的插件标识
+ * @param onAttempt - 记录已调用的插件
+ * @param signal - 取消信号，停止后续插件尝试
  * @returns 音频地址或解析失败原因
  */
 export const resolveByPlugin = async (
   track: Track,
   quality: QualityLevel = "hq",
   skipPluginIds: readonly string[] = [],
+  onAttempt?: (pluginId: string) => void,
+  signal?: AbortSignal,
 ): Promise<OnlineResolveResult> => {
   const fail = (errorCode: ErrorCode): OnlineResolveResult => ({ ok: false, errorCode });
+  if (signal?.aborted) return fail(ErrorCode.URL_RESOLVE_FAILED);
   const plugins = usePluginsStore();
   if (track.source === "plugin") {
     const origin = track.plugin;
@@ -98,6 +107,7 @@ export const resolveByPlugin = async (
       return fail(ErrorCode.NO_PLUGIN_AVAILABLE);
     }
     try {
+      onAttempt?.(origin.pluginId);
       const res = await window.api.plugins.resolveUrl({
         pluginId: origin.pluginId,
         source: origin.source,
@@ -106,6 +116,7 @@ export const resolveByPlugin = async (
       });
       const current = plugins.list.find((info) => info.manifest.id === origin.pluginId);
       if (
+        signal?.aborted ||
         !current?.enabled ||
         current.status.state !== "ready" ||
         !current.status.sources[origin.source]?.actions.includes("musicUrl")
@@ -124,7 +135,7 @@ export const resolveByPlugin = async (
   const pluginSource = PLATFORM_TO_PLUGIN_SOURCE[track.source];
   if (!pluginSource) return fail(ErrorCode.URL_RESOLVE_FAILED);
   const skip = new Set(skipPluginIds);
-  const candidates = plugins.list.filter(
+  const candidates = plugins.orderedList.filter(
     (info) =>
       !skip.has(info.manifest.id) &&
       info.enabled &&
@@ -132,7 +143,7 @@ export const resolveByPlugin = async (
       info.status.sources[pluginSource]?.actions.includes("musicUrl"),
   );
   if (candidates.length === 0) return fail(ErrorCode.NO_PLUGIN_AVAILABLE);
-  // 补齐 id / songmid / songId / hash / albumId 等字段
+  // 补齐平台字段，QQ 的媒体文件标识不能用歌曲 ID 替代
   const totalSec = track.duration > 0 ? Math.round(track.duration / 1000) : 0;
   const interval =
     totalSec > 0
@@ -149,6 +160,9 @@ export const resolveByPlugin = async (
     id: songId,
     songmid: songId,
     songId,
+    ...(track.source === "qqmusic" && track.mediaId
+      ? { strMediaMid: track.mediaId, mediaMid: track.mediaId, media_mid: track.mediaId }
+      : {}),
     name: track.title,
     singer,
     source: pluginSource,
@@ -166,14 +180,16 @@ export const resolveByPlugin = async (
     },
   };
   for (const plugin of candidates) {
+    if (signal?.aborted) return fail(ErrorCode.URL_RESOLVE_FAILED);
     try {
+      onAttempt?.(plugin.manifest.id);
       const res = await window.api.plugins.resolveUrl({
         pluginId: plugin.manifest.id,
         source: pluginSource,
         quality,
         musicInfo,
       });
-      if (res?.url) {
+      if (res?.url && !signal?.aborted) {
         return {
           ok: true,
           url: res.url,
@@ -190,9 +206,11 @@ export const resolveByPlugin = async (
 };
 
 /**
- * 解析在线音频源 URL
+ * 按音源偏好解析在线播放地址，失败时尝试另一种音源
  * @param track - 要解析的 track
- * @param songLevel - 在线歌曲音质档位（仅内置官方接口生效）
+ * @param songLevel - 在线歌曲音质档位
+ * @param options - 本轮恢复中需要跳过的内置接口和插件
+ * @returns 音频地址及来源，或解析失败原因
  */
 const resolveOnlineUrl = async (
   track: Track,
@@ -200,6 +218,16 @@ const resolveOnlineUrl = async (
   options: ResolveTrackSourceOptions = {},
 ): Promise<OnlineResolveResult> => {
   const settings = useSettingsStore();
+  let pluginResolved: OnlineResolveResult | undefined;
+  if (settings.player.preferPluginSource) {
+    pluginResolved = await resolveByPlugin(
+      track,
+      songLevel,
+      options.skipPluginIds ?? [],
+      options.onPluginAttempt,
+    );
+    if (pluginResolved.ok) return pluginResolved;
+  }
   let trialUrl: string | null = null;
   let officialErrorCode: ErrorCode | null = null;
   if (track.source === "netease" && !options.skipOfficialOnline) {
@@ -245,7 +273,12 @@ const resolveOnlineUrl = async (
       officialErrorCode = ErrorCode.NETWORK_ERROR;
     }
   }
-  const pluginResolved = await resolveByPlugin(track, songLevel, options.skipPluginIds ?? []);
+  pluginResolved ??= await resolveByPlugin(
+    track,
+    songLevel,
+    options.skipPluginIds ?? [],
+    options.onPluginAttempt,
+  );
   if (pluginResolved.ok) return pluginResolved;
   if (trialUrl && settings.player.allowTrialPlay) {
     return { ok: true, url: trialUrl, isTrial: true, provider: "trial" };
@@ -301,9 +334,14 @@ export const resolveTrackSource = async (
     return localPath ? { source: localPath, fromCache: false, provider: "local" } : null;
   }
   const settings = useSettingsStore();
-  const songLevel = settings.player.songLevel;
+  const songLevel = options.quality ?? settings.player.songLevel;
   if (track.source === "plugin") {
-    const resolved = await resolveByPlugin(track, songLevel, options.skipPluginIds);
+    const resolved = await resolveByPlugin(
+      track,
+      songLevel,
+      options.skipPluginIds,
+      options.onPluginAttempt,
+    );
     if (!resolved.ok) {
       reportLoadError(resolved.errorCode, options);
       return null;

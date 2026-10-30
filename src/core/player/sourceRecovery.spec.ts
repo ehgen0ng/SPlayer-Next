@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Track } from "@shared/types/player";
+import type { AudioQuality, Track } from "@shared/types/player";
+import type { PluginInfo } from "@shared/types/plugin";
 
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
@@ -9,6 +10,12 @@ const mocks = vi.hoisted(() => ({
   seek: vi.fn(),
   stop: vi.fn(),
   toast: vi.fn(),
+  warning: vi.fn(),
+  pluginResolve: vi.fn(),
+  recordMusicSuccess: vi.fn(),
+  plugins: [] as PluginInfo[],
+  playerSettings: { songLevel: "hq", allowTrialPlay: false, preferPluginSource: false },
+  systemPlayer: { rememberLastTrack: true, autoPlay: false },
 }));
 
 vi.mock("@/apis/netease", () => ({ netease: {}, neteaseCall: mocks.request }));
@@ -20,12 +27,18 @@ vi.mock("@/stores/user", () => ({
 vi.mock("@/stores/settings", () => ({
   useSettingsStore: () => ({
     preset: { skipKeywordsSongs: false, skipTrackKeywords: [] },
-    player: { songLevel: "hq", allowTrialPlay: false },
-    system: { cache: { songCache: { enabled: false } }, player: { rememberLastTrack: true } },
+    player: mocks.playerSettings,
+    system: { cache: { songCache: { enabled: false } }, player: mocks.systemPlayer },
     lyric: { cjkTransform: "none" },
   }),
 }));
-vi.mock("@/stores/plugins", () => ({ usePluginsStore: () => ({ list: [] }) }));
+vi.mock("@/stores/plugins", () => ({
+  usePluginsStore: () => ({
+    list: mocks.plugins,
+    orderedList: mocks.plugins,
+    recordMusicSuccess: mocks.recordMusicSuccess,
+  }),
+}));
 vi.mock("@/stores/streaming", () => ({ useStreamingStore: vi.fn() }));
 vi.mock("@/stores/history", () => ({ useHistoryStore: () => ({ record: vi.fn() }) }));
 vi.mock("@/stores/library", () => ({ useLibraryStore: vi.fn() }));
@@ -49,7 +62,9 @@ vi.mock("@/services/abLoop", () => ({ reset: vi.fn() }));
 vi.mock("@/services/cacheScheduler", () => ({ cancel: vi.fn(), schedule: vi.fn() }));
 vi.mock("@/services/deviceVolume", () => ({ getDeviceVolume: vi.fn(), setDeviceVolume: vi.fn() }));
 vi.mock("@/composables/useFavorite", () => ({ useFavorite: vi.fn() }));
-vi.mock("@/composables/useToast", () => ({ toast: { error: mocks.toast } }));
+vi.mock("@/composables/useToast", () => ({
+  toast: { error: mocks.toast, warning: mocks.warning },
+}));
 vi.mock("@/composables/useDialog", () => ({ dialog: { alert: async () => undefined } }));
 vi.mock("@/utils/color", () => ({ extractColorFromUrl: vi.fn() }));
 vi.mock("@/i18n", () => ({
@@ -77,6 +92,10 @@ beforeEach(async () => {
   vi.resetModules();
   vi.resetAllMocks();
   vi.useFakeTimers();
+  mocks.playerSettings.songLevel = "hq";
+  mocks.playerSettings.preferPluginSource = false;
+  mocks.systemPlayer.autoPlay = false;
+  mocks.plugins = [];
   const { createPinia, setActivePinia } = await import("pinia");
   setActivePinia(createPinia());
   Object.assign(window, {
@@ -89,6 +108,7 @@ beforeEach(async () => {
         stop: mocks.stop,
       },
       download: { lookup: async () => null },
+      plugins: { resolveUrl: mocks.pluginResolve },
       nowPlaying: { update: vi.fn() },
     },
   });
@@ -122,6 +142,248 @@ beforeEach(async () => {
 afterEach(() => {
   vi.clearAllTimers();
   vi.useRealTimers();
+});
+
+describe("插件优先按实际解码音质换源", () => {
+  const mp3: AudioQuality = {
+    codec: "mp3",
+    bitRate: 128000,
+    sampleRate: 44100,
+    bitsPerSample: 32,
+    channels: 2,
+  };
+  const lossless: AudioQuality = { ...mp3, codec: "flac", bitRate: 900000, bitsPerSample: 16 };
+  const hires: AudioQuality = { ...lossless, sampleRate: 96000, bitsPerSample: 24 };
+  let qualities: Record<string, AudioQuality>;
+
+  beforeEach(() => {
+    mocks.playerSettings.preferPluginSource = true;
+    mocks.playerSettings.songLevel = "lossless";
+    qualities = { a: mp3, b: lossless, c: hires, official: mp3 };
+    mocks.plugins = ["a", "b", "c"].map((id) => ({
+      manifest: {
+        id,
+        name: id,
+        version: "1.0.0",
+        grant: [],
+        apiLevel: 1,
+        hash: "test",
+        installedAt: 0,
+        fileName: `${id}.js`,
+      },
+      enabled: true,
+      status: {
+        state: "ready",
+        sources: {
+          wy: { name: "NCM", actions: ["musicUrl"] },
+          tx: { name: "QM", actions: ["musicUrl"] },
+          kg: { name: "KG", actions: ["musicUrl"] },
+        },
+      },
+    }));
+    // 地址后缀和插件自报音质均不可信，以加载返回的编码信息为准
+    mocks.pluginResolve.mockImplementation(async ({ pluginId }) => ({
+      url: `https://plugin/${pluginId}.flac`,
+      quality: "hi-res",
+    }));
+    mocks.load.mockImplementation(async (url: string) => {
+      const id = /\/([abc])\.flac$/.exec(url)?.[1] ?? "official";
+      const quality = qualities[id];
+      return {
+        success: true,
+        data: { detail: { quality }, mediaInfo: { duration: 180000, quality } },
+      };
+    });
+  });
+
+  it.each(["netease", "qqmusic", "kugou"] as const)(
+    "%s 返回伪装成 FLAC 的 MP3 时继续换插件，比较达标候选后才播放",
+    async (source) => {
+      const queue = await import("@/stores/queue");
+      queue.setQueue([tracks[0]!, { ...tracks[1]!, source }]);
+      await player.playAtIndex(1);
+      expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual([
+        "a",
+        "b",
+        "c",
+      ]);
+      expect(mocks.load.mock.calls.map(([url]) => url)).toEqual([
+        "https://plugin/a.flac",
+        "https://plugin/b.flac",
+        "https://plugin/c.flac",
+        "https://plugin/c.flac",
+      ]);
+      expect(mocks.load.mock.calls.every(([, options]) => options.autoPlay === false)).toBe(true);
+      expect(mocks.play).toHaveBeenCalledOnce();
+      expect(mocks.play.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mocks.load.mock.invocationCallOrder[1]!,
+      );
+      expect(media.detail?.quality.codec).toBe("flac");
+      expect(mocks.warning).not.toHaveBeenCalled();
+      expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("c");
+    },
+  );
+
+  it("Hi-Res 请求按真实档位过滤，所有候选比较完成后才播放", async () => {
+    mocks.playerSettings.songLevel = "hi-res";
+    await player.playAtIndex(1);
+    expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual(["a", "b", "c"]);
+    expect(mocks.pluginResolve.mock.calls.every(([args]) => args.quality === "hi-res")).toBe(true);
+    expect(status.currentSource).toBe("https://plugin/c.flac");
+    expect(mocks.play).toHaveBeenCalledOnce();
+    expect(mocks.warning).not.toHaveBeenCalled();
+    const lyrics = await import("@/services/lyric/loader");
+    expect(lyrics.loadForTrack).toHaveBeenCalledExactlyOnceWith(null);
+  });
+
+  it("同档无损按码率择优，六声道更大仍标为普通无损", async () => {
+    qualities.a = { ...lossless, bitRate: 1033000 };
+    qualities.b = { ...lossless, bitRate: 2595000, channels: 6 };
+    qualities.c = { ...lossless, bitRate: 1500000 };
+    await player.playAtIndex(1);
+    expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual(["a", "b", "c"]);
+    expect(status.currentSource).toBe("https://plugin/b.flac");
+    expect(media.detail?.quality).toEqual(qualities.b);
+    expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("b");
+    expect(mocks.play).toHaveBeenCalledOnce();
+  });
+
+  it("冷启动恢复同样筛选音质，校验完成后恢复自动播放和记忆进度", async () => {
+    mocks.systemPlayer.autoPlay = true;
+    await player.restoreLastTrack();
+    expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual(["a", "b", "c"]);
+    expect(mocks.play).toHaveBeenCalledOnce();
+    expect(mocks.seek).toHaveBeenCalledWith(resumePosition);
+    expect(status.state).toBe("playing");
+    expect(status.currentSource).toBe("https://plugin/c.flac");
+  });
+
+  it("同档换源不会重复调用前面已经报错的插件", async () => {
+    qualities.b = mp3;
+    mocks.pluginResolve.mockImplementation(async ({ pluginId }) => {
+      if (pluginId === "a") throw new Error("source unavailable");
+      return { url: `https://plugin/${pluginId}.flac` };
+    });
+    await player.playAtIndex(1);
+    expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual(["a", "b", "c"]);
+    expect(status.currentSource).toBe("https://plugin/c.flac");
+    expect(mocks.play).toHaveBeenCalledOnce();
+  });
+
+  it("全部不达标时尝试完插件和内置音源，再回到较高档位并提示降级", async () => {
+    mocks.playerSettings.songLevel = "hi-res";
+    qualities.c = { ...mp3, bitRate: 320000 };
+    await player.playAtIndex(1);
+    expect(mocks.load.mock.calls.map(([url]) => url)).toEqual([
+      "https://plugin/a.flac",
+      "https://plugin/b.flac",
+      "https://plugin/c.flac",
+      newUrl,
+      "https://plugin/a.flac",
+      "https://plugin/b.flac",
+      "https://plugin/c.flac",
+      "https://plugin/b.flac",
+    ]);
+    expect(mocks.pluginResolve).toHaveBeenCalledTimes(6);
+    expect(mocks.play).toHaveBeenCalledOnce();
+    expect(mocks.warning).toHaveBeenCalledExactlyOnceWith("player.qualityFallback");
+    expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("b");
+  });
+
+  it("插件只有 MP3 时仍尝试内置无损音源", async () => {
+    qualities.b = mp3;
+    qualities.c = mp3;
+    qualities.official = lossless;
+    await player.playAtIndex(1);
+    expect(status.currentSource).toBe(newUrl);
+    expect(mocks.load).toHaveBeenCalledTimes(5);
+    expect(mocks.play).toHaveBeenCalledOnce();
+    expect(mocks.warning).not.toHaveBeenCalled();
+  });
+
+  it("Hi-Res 全部拒绝后使用无损参数从首个插件重试，不改用户的音质设置", async () => {
+    mocks.playerSettings.songLevel = "hi-res";
+    mocks.request.mockResolvedValue({ data: [{ url: null, fee: 0 }] });
+    qualities.c = { ...lossless, bitRate: 1800000 };
+    mocks.pluginResolve.mockImplementation(async ({ pluginId, quality }) => {
+      if (quality === "hi-res" || pluginId === "a") throw new Error("unsupported quality");
+      return { url: `https://plugin/${pluginId}.flac` };
+    });
+    await player.playAtIndex(1);
+    expect(mocks.pluginResolve.mock.calls.map(([args]) => [args.pluginId, args.quality])).toEqual([
+      ["a", "hi-res"],
+      ["b", "hi-res"],
+      ["c", "hi-res"],
+      ["a", "lossless"],
+      ["b", "lossless"],
+      ["c", "lossless"],
+    ]);
+    expect(status.currentSource).toBe("https://plugin/c.flac");
+    expect(mocks.playerSettings.songLevel).toBe("hi-res");
+    expect(mocks.warning).toHaveBeenCalledOnce();
+  });
+
+  it("Hi-Res 和无损均不可用时再以 HQ 参数尝试插件", async () => {
+    mocks.playerSettings.songLevel = "hi-res";
+    mocks.request.mockResolvedValue({ data: [{ url: null, fee: 0 }] });
+    qualities.a = { ...mp3, bitRate: 320000 };
+    qualities.b = mp3;
+    qualities.c = mp3;
+    mocks.pluginResolve.mockImplementation(async ({ pluginId, quality }) => {
+      if (quality !== "hq") throw new Error("unsupported quality");
+      return { url: `https://plugin/${pluginId}.flac` };
+    });
+    await player.playAtIndex(1);
+    expect(mocks.pluginResolve.mock.calls.map(([args]) => [args.pluginId, args.quality])).toEqual([
+      ["a", "hi-res"],
+      ["b", "hi-res"],
+      ["c", "hi-res"],
+      ["a", "lossless"],
+      ["b", "lossless"],
+      ["c", "lossless"],
+      ["a", "hq"],
+      ["b", "hq"],
+      ["c", "hq"],
+    ]);
+    expect(status.currentSource).toBe("https://plugin/a.flac");
+    expect(mocks.play).toHaveBeenCalledOnce();
+  });
+
+  it("内置源加载失败后仍能回到已验证可播放的候选", async () => {
+    mocks.playerSettings.songLevel = "hi-res";
+    qualities.c = mp3;
+    const load = mocks.load.getMockImplementation()!;
+    mocks.load.mockImplementation((url, options) =>
+      url === newUrl
+        ? Promise.resolve({ success: false, error: "NETWORK_ERROR" })
+        : load(url, options),
+    );
+    await player.playAtIndex(1);
+    expect(status.currentSource).toBe("https://plugin/b.flac");
+    expect(mocks.play).toHaveBeenCalledOnce();
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it.each(["暂停", "停止"])("换源期间手动%s不被迟到结果恢复播放", async (action) => {
+    let finish!: (result: unknown) => void;
+    mocks.pluginResolve.mockImplementation(({ pluginId }) =>
+      pluginId === "b"
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ url: `https://plugin/${pluginId}.flac` }),
+    );
+    const loading = player.playAtIndex(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.load).toHaveBeenCalledOnce();
+    if (action === "暂停") await player.pause();
+    else await player.stop();
+    finish({ url: "https://plugin/b.flac" });
+    await loading;
+    expect(mocks.play).not.toHaveBeenCalled();
+    expect(status.state).toBe(action === "暂停" ? "paused" : "stopped");
+    expect(mocks.load).toHaveBeenCalledTimes(action === "暂停" ? 4 : 1);
+  });
 });
 
 describe("在线歌曲暂停后地址失效恢复", () => {

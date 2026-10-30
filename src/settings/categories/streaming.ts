@@ -13,7 +13,7 @@ const mediaSourceCategory: SettingCategory = {
           key: "streamingEnabled",
           type: "switch",
           binding: { store: "settings", path: "system.streaming.enabled" },
-          defaultValue: true,
+          defaultValue: false,
         },
       ],
     },

@@ -13,7 +13,7 @@ export interface Contributor {
 }
 
 /* 仓库标识 */
-const repoSlug = "SPlayer-Dev/SPlayer-Next";
+const repoSlug = new URL(__APP_REPO_URL__).pathname.slice(1);
 
 /**
  * 获取仓库贡献者列表

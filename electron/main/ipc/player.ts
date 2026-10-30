@@ -7,8 +7,9 @@ import {
   getPreparedAutoMixPlan,
   installPreparedAutoMixStems,
 } from "@main/services/playerPreload";
-import { extname } from "node:path";
-import { app, ipcMain, powerMonitor } from "electron";
+import { stat } from "node:fs/promises";
+import { extname, isAbsolute } from "node:path";
+import { app, ipcMain, net, powerMonitor } from "electron";
 import { sendToMain } from "@main/utils/broadcast";
 import { readFileAutoEncoding } from "@main/utils/encoding";
 import { wsBroadcast } from "@main/server/broadcast";
@@ -21,7 +22,13 @@ import * as neteaseScrobble from "@main/services/neteaseScrobble";
 import * as streamingPlayback from "@main/services/streaming/playback";
 import { invalidateStreamingSession } from "@main/services/streaming/adapters/resolve";
 import { fetchBytes } from "@main/utils/fetchBytes";
-import { getPlayer, resetPlayer, onPlayerCreated, onPlayerReset } from "@main/services/engine";
+import {
+  getEngine,
+  getPlayer,
+  resetPlayer,
+  onPlayerCreated,
+  onPlayerReset,
+} from "@main/services/engine";
 import { playerControl } from "@main/services/playerControl";
 import {
   cancelPendingReinit,
@@ -809,6 +816,62 @@ export const registerPlayerIpc = (): void => {
       return { success: true, data: getPlayer().getStreamInfo() };
     } catch (error) {
       return fail(ErrorCode.UNKNOWN, error);
+    }
+  });
+
+  ipcMain.handle("player:probeSource", async (_event, source: string) => {
+    try {
+      const meta = await getEngine().probeAudioSource(source);
+      return {
+        success: true,
+        data: {
+          sampleRate: meta.originalSampleRate,
+          channels: meta.channels,
+          bitsPerSample: meta.bitsPerSample,
+          bitRate: meta.bitRate,
+          codec: meta.codec,
+        },
+      };
+    } catch {
+      return { success: false, error: ErrorCode.FILE_DECODE_ERROR };
+    }
+  });
+
+  ipcMain.handle("player:getSourceSize", async (_event, source: string) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      let size: number | undefined;
+      if (/^https?:\/\//i.test(source)) {
+        const response = await net.fetch(source, {
+          headers: { Range: "bytes=0-0", "Accept-Encoding": "identity" },
+          credentials: "omit",
+          signal: controller.signal,
+        });
+        await response.body?.cancel();
+        const encoding = response.headers.get("content-encoding");
+        if (!encoding || encoding === "identity") {
+          // 分段响应的 Content-Length 只是当前片段，必须取 Content-Range 的总长
+          if (response.status === 206) {
+            const total = response.headers.get("content-range")?.match(/^bytes \d+-\d+\/(\d+)$/i);
+            if (total) size = Number(total[1]);
+          } else if (response.status === 200) {
+            size = Number(response.headers.get("content-length"));
+          }
+        }
+      } else if (isAbsolute(source)) {
+        const file = await stat(source);
+        if (file.isFile()) size = file.size;
+      }
+      return {
+        success: true,
+        data: size && Number.isSafeInteger(size) && size > 0 ? size : undefined,
+      };
+    } catch {
+      return { success: true, data: undefined };
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
     }
   });
 

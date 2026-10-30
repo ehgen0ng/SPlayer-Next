@@ -14,6 +14,7 @@ import artist from "./artist";
 import song_info from "./song_info";
 import song_list from "./song_list";
 import user_detail from "./user_detail";
+import user_playlist from "./user_playlist";
 import song_url from "./song_url";
 import comment from "./comment";
 import { login_qr_key, login_qr_check } from "./login_qr";
@@ -29,6 +30,7 @@ export const modules: Record<string, QMModule> = {
   song_info,
   song_list,
   user_detail,
+  user_playlist,
   song_url,
   comment,
   login_qr_key,

@@ -3,7 +3,8 @@ import type { SettingCategory } from "@/types/settings-schema";
 import DeviceSelector from "@/components/settings/custom/DeviceSelector.vue";
 import { isWin } from "@/utils/config";
 import IconLucidePlay from "~icons/lucide/play";
-import { getActiveDeviceId } from "@/core/player";
+import { getActiveDeviceId, reloadCurrentTrack } from "@/core/player";
+import { isPlatform } from "@shared/types/platform";
 import { setDeviceVolume } from "@/services/deviceVolume";
 import { useStatusStore } from "@/stores/status";
 import AutoMixComponents from "@/components/settings/custom/AutoMixComponents.vue";
@@ -93,7 +94,19 @@ const playerCategory: SettingCategory = {
             { value: "lossless", labelKey: "settings.songLevel.lossless" },
             { value: "hi-res", labelKey: "settings.songLevel.hi-res" },
           ],
-          defaultValue: "hq",
+          defaultValue: "hi-res",
+          action: async () => {
+            if (isPlatform(useStatusStore().currentTrack?.source)) await reloadCurrentTrack();
+          },
+        },
+        {
+          key: "preferPluginSource",
+          type: "switch",
+          binding: { store: "settings", path: "player.preferPluginSource" },
+          defaultValue: true,
+          action: async () => {
+            if (isPlatform(useStatusStore().currentTrack?.source)) await reloadCurrentTrack();
+          },
         },
         {
           key: "allowTrialPlay",
@@ -105,7 +118,7 @@ const playerCategory: SettingCategory = {
           key: "preloadNextTrack",
           type: "switch",
           binding: { store: "settings", path: "player.preloadNextTrack" },
-          defaultValue: false,
+          defaultValue: true,
           confirm: {
             when: (next) =>
               Boolean(next) &&

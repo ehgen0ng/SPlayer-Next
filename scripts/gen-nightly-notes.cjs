@@ -6,7 +6,9 @@ const { writeFileSync } = require("node:fs");
 const { resolve } = require("node:path");
 
 const version = process.env.APP_VERSION || require("../package.json").version;
-const repo = process.env.GITHUB_REPOSITORY || "SPlayer-Dev/SPlayer-Next";
+const repo =
+  process.env.GITHUB_REPOSITORY ||
+  new URL(require("../package.json").repository.url).pathname.slice(1);
 const prevSha = process.env.PREV_COMMIT_SHA;
 
 const currentSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf-8" }).trim();

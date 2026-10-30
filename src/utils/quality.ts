@@ -3,6 +3,9 @@ import type { AudioQuality } from "@shared/types/player";
 /** 音质等级 */
 export type QualityLevel = "hi-res" | "lossless" | "hq" | "sq" | "lq";
 
+/** 从低到高的音质顺序，播放与下载共用 */
+export const QUALITY_ORDER: readonly QualityLevel[] = ["lq", "sq", "hq", "lossless", "hi-res"];
+
 /** 无损编解码器 */
 const LOSSLESS_CODECS = new Set(["flac", "alac", "ape", "wav", "aiff", "wavpack", "tta"]);
 
@@ -48,6 +51,16 @@ export const getQualityLevel = (quality: AudioQuality | undefined): QualityLevel
   if (kbps >= 192) return "sq";
   return "lq";
 };
+
+/**
+ * 先比较真实音质档位，再比较总码率；未知码率排在末尾
+ * @param left - 待比较候选
+ * @param right - 已保留候选
+ * @returns 正数表示左侧更优，零表示保留原顺序
+ */
+export const compareAudioQuality = (left: AudioQuality, right: AudioQuality): number =>
+  QUALITY_ORDER.indexOf(getQualityLevel(left)) - QUALITY_ORDER.indexOf(getQualityLevel(right)) ||
+  Math.max(0, left.bitRate || 0) - Math.max(0, right.bitRate || 0);
 
 /**
  * 取音质等级短码文案

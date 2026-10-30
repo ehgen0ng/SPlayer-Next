@@ -91,6 +91,9 @@ jobs:
             *-beta|*-beta.*)
               echo "UPDATE_CHANNEL=beta" >> "$GITHUB_ENV"
               ;;
+            *-fork|*-fork.*)
+              echo "UPDATE_CHANNEL=fork" >> "$GITHUB_ENV"
+              ;;
             *-*)
               echo "不支持的预发布版本格式: $VERSION"
               exit 1
@@ -193,6 +196,9 @@ jobs:
               ;;
             *-beta|*-beta.*)
               echo "UPDATE_CHANNEL=beta" >> "$GITHUB_ENV"
+              ;;
+            *-fork|*-fork.*)
+              echo "UPDATE_CHANNEL=fork" >> "$GITHUB_ENV"
               ;;
             *-*)
               echo "不支持的预发布版本格式: $VERSION"

@@ -1,11 +1,6 @@
 /**
  * QM 主进程服务
  *
- * 与 netease 不同之处：
- * - 无持久化 session（uid/sid 是匿名态，内存缓存 1h 足够）
- * - 无 cookie 登录态（播放 URL 由插件实现，不走账号）
- * - 走 fetch 原生 HTTP，无加密 body（靠 UA + comm 伪装）
- *
  * 统一入口：callQQMusic(name, params)
  */
 
@@ -30,6 +25,8 @@ const cache = new Map<string, CacheEntry>();
 /** 不缓存的实时接口 */
 const NON_CACHEABLE: ReadonlySet<string> = new Set([
   "user_detail",
+  "user_playlist",
+  "song_list",
   "song_url",
   "comment",
   "login_qr_key",

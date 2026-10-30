@@ -467,6 +467,7 @@
     }
   },
   "player": {
+    "qualityFallback": "No {requested} source is available; playing at {actual}",
     "prev": "Previous",
     "next": "Next",
     "transitioning": "Crossfade",
@@ -584,6 +585,9 @@
   },
   "quality": {
     "outputInfo": "Output Information",
+    "fileSection": "File Information",
+    "fileSize": "File Size",
+    "unknown": "Unknown",
     "outputSection": "Output Information",
     "outputMode": "Output Mode",
     "dspSection": "Audio Processing",
@@ -938,6 +942,10 @@
       "hq": "Extreme (HQ)",
       "lossless": "Lossless",
       "hi-res": "Hi-Res"
+    },
+    "preferPluginSource": {
+      "label": "Prefer Plugin Audio Sources",
+      "description": "Try plugins first and continue to other sources if actual quality is too low; warn when falling back to lower quality. Downloads and cached audio still take priority"
     },
     "allowTrialPlay": {
       "label": "Allow Trial Playback",
@@ -2045,6 +2053,14 @@
       "label": "Installed Plugins"
     },
     "plugins": {
+      "autoSort": "Automatically Order Audio Plugins",
+      "autoSortHint": "Sources with more successful loads appear first",
+      "sort": "Reorder",
+      "sortTitle": "Plugin Order",
+      "sortHint": "Drag or use the arrows; sources higher in the list are tried first",
+      "successCount": "{count} successful loads",
+      "moveUp": "Move plugin up",
+      "moveDown": "Move plugin down",
       "securityWarningTitle": "Mind the security risks before installing",
       "securityWarning": "Plugins are third-party code. The app sandboxes them as much as possible, but the risk cannot be fully eliminated — a malicious plugin may access your data or perform dangerous actions. Only install plugins from sources you trust.",
       "hint": "Install from local file or URL",

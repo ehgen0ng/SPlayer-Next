@@ -1,12 +1,79 @@
 import type { PluginInfo, MarketPlugin, PluginGrant } from "@shared/types/plugin";
+import { useSettingsStore } from "@/stores/settings";
 
 /** 插件管理 Pinia store */
 export const usePluginsStore = defineStore("plugins", () => {
+  const settings = useSettingsStore();
   const list = shallowRef<PluginInfo[]>([]);
   const loaded = ref(false);
   const marketPlugins = shallowRef<MarketPlugin[]>([]);
   const marketLoaded = ref(false);
   let unsubscribe: (() => void) | null = null;
+
+  const autoSortMusicSources = computed(() => settings.system.plugins.autoSortMusicSources);
+  const musicSourceSuccesses = computed(() => settings.system.plugins.musicSourceSuccesses);
+  const orderedList = computed(() => {
+    const remaining = new Map(list.value.map((info) => [info.manifest.id, info]));
+    const ordered: PluginInfo[] = [];
+    for (const id of settings.system.plugins.priority.musicUrl) {
+      const info = remaining.get(id);
+      if (info) ordered.push(info);
+      remaining.delete(id);
+    }
+    return [...ordered, ...remaining.values()];
+  });
+
+  /**
+   * 保存插件顺序，新安装但未参与排序的插件排在末尾
+   * @param ids - 按优先级排列的插件标识
+   */
+  const setOrder = async (ids: readonly string[]): Promise<void> => {
+    const installed = new Set(list.value.map((info) => info.manifest.id));
+    const order = [...new Set(ids)].filter((id) => installed.has(id));
+    for (const id of installed) if (!order.includes(id)) order.push(id);
+    await settings.setSystem("plugins.priority.musicUrl", order);
+  };
+
+  /**
+   * 切换自动排序，保留当前顺序直到下一次成功加载
+   * @param enabled - 是否自动调整音源插件顺序
+   */
+  const setAutoSortMusicSources = async (enabled: boolean): Promise<void> => {
+    await settings.setSystem("plugins.autoSortMusicSources", enabled);
+  };
+
+  /**
+   * 自动排序开启时让成功更多的音源靠前，同分插件保持当前相对顺序
+   */
+  const applyAutoOrder = (): void => {
+    if (!autoSortMusicSources.value) return;
+    const counts = musicSourceSuccesses.value;
+    const order = [...orderedList.value]
+      .sort((a, b) => (counts[b.manifest.id] ?? 0) - (counts[a.manifest.id] ?? 0))
+      .map((info) => info.manifest.id);
+    if (order.some((id, index) => id !== orderedList.value[index].manifest.id))
+      void setOrder(order);
+  };
+
+  /**
+   * 记录最终采用的音源，并按成功次数更新顺序
+   * @param id - 已成功加载并通过当前音质检查的插件标识
+   */
+  const recordMusicSuccess = (id: string): void => {
+    const info = list.value.find((plugin) => plugin.manifest.id === id);
+    if (
+      !info?.enabled ||
+      info.status.state !== "ready" ||
+      !Object.values(info.status.sources).some((source) => source.actions.includes("musicUrl"))
+    )
+      return;
+    const counts = {
+      ...musicSourceSuccesses.value,
+      [id]: (musicSourceSuccesses.value[id] ?? 0) + 1,
+    };
+    void settings.setSystem("plugins.musicSourceSuccesses", counts);
+    applyAutoOrder();
+  };
 
   /** 按实时授权展示已就绪插件的菜单 */
   const menuContributions = computed(() =>
@@ -31,7 +98,20 @@ export const usePluginsStore = defineStore("plugins", () => {
    */
   const load = async (waitForPluginId?: string): Promise<void> => {
     list.value = await window.api.plugins.list(waitForPluginId);
+    // 卸载或外部删除插件后清理记录，统计大小仅随已安装插件数量增长
+    const installed = new Set(list.value.map((info) => info.manifest.id));
+    const counts = Object.entries(musicSourceSuccesses.value);
+    if (counts.some(([id]) => !installed.has(id))) {
+      await settings.setSystem(
+        "plugins.musicSourceSuccesses",
+        Object.fromEntries(counts.filter(([id]) => installed.has(id))),
+      );
+    }
+    if (settings.system.plugins.priority.musicUrl.some((id) => !installed.has(id))) {
+      await setOrder(settings.system.plugins.priority.musicUrl);
+    }
     loaded.value = true;
+    applyAutoOrder();
     if (!unsubscribe) {
       unsubscribe = window.api.plugins.onStatus((info) => {
         const next = list.value.slice();
@@ -80,9 +160,14 @@ export const usePluginsStore = defineStore("plugins", () => {
     plugin: MarketPlugin,
   ): Promise<{ ok: boolean; id?: string; error?: string }> => installFromUrl(plugin.updateUrl);
 
+  /**
+   * 卸载插件并移除其排序与成功记录
+   * @param id - 插件标识
+   * @returns 卸载结果
+   */
   const uninstall = async (id: string): Promise<{ ok: boolean; error?: string }> => {
     const res = await window.api.plugins.uninstall(id);
-    if (res.ok) list.value = list.value.filter((info) => info.manifest.id !== id);
+    if (res.ok) await load();
     return res;
   };
 
@@ -182,6 +267,13 @@ export const usePluginsStore = defineStore("plugins", () => {
 
   return {
     list,
+    orderedList,
+    autoSortMusicSources,
+    musicSourceSuccesses,
+    setOrder,
+    setAutoSortMusicSources,
+    recordMusicSuccess,
+    applyAutoOrder,
     loaded,
     menuContributions,
     marketPlugins,

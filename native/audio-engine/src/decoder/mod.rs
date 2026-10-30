@@ -63,7 +63,7 @@ pub struct DecoderData {
 /// 已打开且完成元数据读取的音源，等待按实际输出流采样率创建重采样器
 pub struct PreparedDecoder {
     reader: AudioReader,
-    metadata: AudioMetadata,
+    pub(crate) metadata: AudioMetadata,
     replay_gain_db: Option<f32>,
     cancel_handle: Option<HttpCancelHandle>,
 }

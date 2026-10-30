@@ -371,6 +371,18 @@ export interface PlayerApi {
   getStatus: () => Promise<IpcResponse<PlayerStatus>>;
   /** 获取当前真实的音频流与输出参数 */
   getStreamInfo: () => Promise<IpcResponse<AudioStreamInfo>>;
+  /**
+   * 按需查询当前音源文件大小，不读取音频内容
+   * @param source - 实际播放的本地路径或 HTTP 地址
+   * @returns 字节数，无法获取时为空
+   */
+  getSourceSize: (source: string) => Promise<IpcResponse<number>>;
+  /**
+   * 独立探测音源音质，不改变当前播放
+   * @param source - 本地路径或 HTTP 地址
+   * @returns 实际音质信息
+   */
+  probeSource: (source: string) => Promise<IpcResponse<AudioQuality>>;
   /** 设置 FFT 频谱推送 */
   setFftEnabled: (enabled: boolean) => Promise<IpcResponse>;
   /** 获取 FFT 频谱数据 */

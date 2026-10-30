@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { toast } from "@/composables/useToast";
-import { useUserStore } from "@/stores/user";
+import { useQQMusicStore } from "@/stores/qqmusic";
+import { useStatusStore } from "@/stores/status";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{
@@ -10,7 +11,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const user = useUserStore();
+const user = useQQMusicStore();
 
 const raw = ref("");
 const loading = ref(false);
@@ -25,17 +26,18 @@ watch(
   },
 );
 
+/** 保存 QQ 音乐 Cookie 并校验账号后同步收藏 */
 const submit = async (): Promise<void> => {
   const value = raw.value.trim();
-  if (!value || !/MUSIC_U\s*=/i.test(value)) {
-    toast.error(t("login.cookieInvalid"));
+  if (!value || !/(?:qm_keyst|qqmusic_key)\s*=/.test(value)) {
+    toast.error(t("settings.platformLogin.toast.cookieInvalid"));
     return;
   }
   loading.value = true;
   try {
-    const res = await window.api.apis.setCookie("netease", value);
+    const res = await window.api.apis.setCookie("qqmusic", value);
     if (!res.ok) {
-      toast.error(t("login.cookieInvalid"));
+      toast.error(t("settings.platformLogin.toast.cookieInvalid"));
       return;
     }
     const ok = await user.fetchStatus();
@@ -44,6 +46,7 @@ const submit = async (): Promise<void> => {
       return;
     }
     toast.success(t("login.success"));
+    useStatusStore().myPlaylistSource = "online";
     emit("success");
     emit("update:open", false);
   } finally {
@@ -57,13 +60,12 @@ const onOpenUpdate = (value: boolean): void => emit("update:open", value);
 <template>
   <SDialog :open="open" :title="t('login.manualCookie')" width="420px" @update:open="onOpenUpdate">
     <div class="flex flex-col gap-3">
-      <SAlert>{{ t("login.cookieHint") }}</SAlert>
       <SInput
         v-model="raw"
         type="textarea"
         :rows="4"
         clearable
-        :placeholder="t('login.cookiePlaceholder')"
+        :placeholder="t('settings.platformLogin.cookiePlaceholder')"
         :disabled="loading"
       />
     </div>

@@ -2,7 +2,7 @@
   "name": "splayer-next",
   "productName": "SPlayer-Next",
   "desktopName": "top.imsyy.splayer_next",
-  "version": "1.2.1",
+  "version": "1.2.1-fork.1",
   "description": "Cross-platform desktop music player with rich lyric support and wide audio format compatibility",
   "type": "module",
   "packageManager": "pnpm@12.15.0",
@@ -12,13 +12,13 @@
     "email": "imsyy1024@gmail.com",
     "url": "https://imsyy.top"
   },
-  "homepage": "https://splayer-next.imsyy.top",
+  "homepage": "https://github.com/ehgen0ng/SPlayer-Next",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SPlayer-Dev/SPlayer-Next"
+    "url": "https://github.com/ehgen0ng/SPlayer-Next"
   },
   "bugs": {
-    "url": "https://github.com/SPlayer-Dev/SPlayer-Next/issues"
+    "url": "https://github.com/ehgen0ng/SPlayer-Next/issues"
   },
   "license": "AGPL-3.0",
   "license-file": "LICENSE",

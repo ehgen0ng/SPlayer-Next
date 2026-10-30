@@ -1,22 +1,24 @@
 <script setup lang="ts">
-import { useUserStore } from "@/stores/user";
+import { useQQMusicStore } from "@/stores/qqmusic";
+import { useStatusStore } from "@/stores/status";
 import { toast } from "@/composables/useToast";
-import { dialog } from "@/composables/useDialog";
 import { REPO_NAME } from "@/utils/config";
-import { neteaseQrLoginAdapter, syncNeteaseDeviceName } from "@/apis/login/netease";
+import { qqmusicQrLoginAdapter } from "@/apis/login/qqmusic";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const { t } = useI18n();
-const user = useUserStore();
-const adapter = neteaseQrLoginAdapter;
+const user = useQQMusicStore();
+const adapter = qqmusicQrLoginAdapter;
 const panelRef = useTemplateRef("panelRef");
 const loading = ref(false);
 const cookieDialogOpen = ref(false);
 
+/** 校验 QM 扫码结果并同步账号收藏 */
 const finishLogin = async (): Promise<boolean> => {
   const ok = await user.fetchStatus();
   if (ok) {
+    useStatusStore().myPlaylistSource = "online";
     toast.success(t("login.success"));
     emit("update:open", false);
     return true;
@@ -25,35 +27,11 @@ const finishLogin = async (): Promise<boolean> => {
   return false;
 };
 
+/** 完成 QQ 扫码登录 */
 const handleQrSuccess = async (): Promise<void> => {
   loading.value = true;
   try {
     if (!(await finishLogin())) void panelRef.value?.refresh();
-  } finally {
-    loading.value = false;
-  }
-};
-
-const startAutoFetch = async (): Promise<void> => {
-  if (loading.value) return;
-  const ok = await dialog.confirm({
-    title: t("login.autoFetchTitle"),
-    content: t("login.autoFetchTip"),
-    confirmText: t("login.autoFetchConfirm"),
-    type: "warning",
-  });
-  if (!ok) return;
-  loading.value = true;
-  panelRef.value?.pause();
-  try {
-    const result = await window.api.apis.openLoginWeb("netease");
-    if (!result.ok) {
-      if (result.error !== "canceled") toast.error(t("login.failed"));
-      panelRef.value?.resume();
-      return;
-    }
-    if (!(await finishLogin())) void panelRef.value?.refresh();
-    else void syncNeteaseDeviceName();
   } finally {
     loading.value = false;
   }
@@ -76,6 +54,9 @@ const onCookieDialogOpen = (open: boolean): void => {
       <div class="flex flex-col items-center gap-2">
         <SLogo :size="48" />
         <div class="text-xl font-semibold text-on-surface">{{ REPO_NAME }}</div>
+        <div class="text-sm text-on-surface-variant">
+          {{ t("settings.platformLogin.title", { name: "QM" }) }}
+        </div>
       </div>
       <QrLoginPanel
         ref="panelRef"
@@ -85,11 +66,6 @@ const onCookieDialogOpen = (open: boolean): void => {
         @success="handleQrSuccess"
       />
       <div class="flex items-center gap-2 pt-1">
-        <SButton variant="ghost" size="small" :disabled="loading" @click="startAutoFetch">
-          <template #icon><IconLucideScanLine /></template>
-          {{ t("login.autoFetch") }}
-        </SButton>
-        <div class="h-3 w-px bg-outline-variant/40" />
         <SButton variant="ghost" size="small" :disabled="loading" @click="openManualCookie">
           <template #icon><IconLucideKeyRound /></template>
           {{ t("login.manualCookie") }}

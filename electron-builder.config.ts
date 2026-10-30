@@ -13,7 +13,7 @@ const fileAssociations = [...SUPPORTED_AUDIO_EXTENSIONS].map((extension) => {
 });
 
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
-const prereleaseChannel = /-(alpha|beta|nightly)(?:\.|$)/.exec(packageVersion)?.[1];
+const prereleaseChannel = /-(alpha|beta|nightly|fork)(?:\.|$)/.exec(packageVersion)?.[1];
 const inferredUpdateChannel = prereleaseChannel ?? "latest";
 const updateChannel = process.env.UPDATE_CHANNEL ?? inferredUpdateChannel;
 
@@ -21,7 +21,8 @@ if (
   updateChannel !== "latest" &&
   updateChannel !== "beta" &&
   updateChannel !== "alpha" &&
-  updateChannel !== "nightly"
+  updateChannel !== "nightly" &&
+  updateChannel !== "fork"
 ) {
   throw new Error(`不支持的更新通道: ${updateChannel}`);
 }
@@ -67,6 +68,11 @@ const config: Configuration = {
   electronLanguages: ["zh-CN", "en-US"],
   asarUnpack: ["public/**"],
   extraResources: [
+    {
+      from: "resources/plugins",
+      to: "plugins",
+      filter: ["*.js"],
+    },
     {
       from: "native/audio-engine",
       to: "native",
@@ -194,7 +200,7 @@ const config: Configuration = {
   },
   publish: {
     provider: "github",
-    owner: "SPlayer-Dev",
+    owner: "ehgen0ng",
     repo: "SPlayer-Next",
     channel: updateChannel,
   },

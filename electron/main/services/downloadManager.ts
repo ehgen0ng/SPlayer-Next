@@ -361,6 +361,8 @@ const runTask = async (
     const tagOk = await applyTags(req, finalPath);
 
     task.status = "done";
+    if (req.resolvedQualityLevel) task.qualityLevel = req.resolvedQualityLevel;
+    if (req.resolvedQuality) task.track = { ...task.track, quality: req.resolvedQuality };
     task.received = received;
     task.total = total || received;
     task.filePath = finalPath;

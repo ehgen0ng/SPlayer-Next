@@ -4,7 +4,6 @@ import { DEFAULT_LYRIC_FORMAT_ORDER as DEFAULT_LYRIC_FORMAT_ORDER_SHARED } from 
 import type { Platform } from "@shared/types/platform";
 import type { TransitionPreference } from "@shared/types/player";
 import type { TransitionMode } from "@shared/types/automix";
-import { ALL_PLATFORMS } from "@shared/types/platform";
 import type { CjkTransformMode } from "@shared/types/opencc";
 import type { QualityLevel } from "@/utils/quality";
 import type { LyricAlignment } from "lyric-dom";
@@ -74,7 +73,7 @@ export type LyricSourceOrder = Platform[];
 export type LyricFormatOrder = LyricFormat[];
 
 /** 默认音源顺序 */
-export const DEFAULT_LYRIC_SOURCE_ORDER: LyricSourceOrder = [...ALL_PLATFORMS];
+export const DEFAULT_LYRIC_SOURCE_ORDER: LyricSourceOrder = ["qqmusic", "kugou", "netease"];
 
 /** 默认格式优先级 */
 export const DEFAULT_LYRIC_FORMAT_ORDER: LyricFormatOrder = [...DEFAULT_LYRIC_FORMAT_ORDER_SHARED];
@@ -265,6 +264,8 @@ export interface PlayerSettings {
   reverseSpectrum: boolean;
   /** 在线歌曲音质偏好；实际可用级别取决于账号权限 */
   songLevel: QualityLevel;
+  /** 在线播放优先使用插件音源，失败时回退内置接口 */
+  preferPluginSource: boolean;
   /** 允许完整音源不可用时播放试听片段 */
   allowTrialPlay: boolean;
   /** 时间显示格式 */

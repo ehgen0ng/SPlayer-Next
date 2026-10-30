@@ -1,105 +1,79 @@
-/**
- * 歌单详情
- * 使用 c.y.qq.com 的 GET 接口（不走 musicu.fcg）
- * 端点：https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg
- *
- * params:
- * - id  disstid（歌单 ID，必填）
- */
-
-import { QM_HEADERS, formatSingerName } from "../core/config";
-import type { QMSong } from "@shared/types/platform/qqmusic";
 import type { QMModule } from "../core/types";
+import { getQQMusicCookies, getQQMusicUin, qmRequest } from "../core/request";
+import { normalizeQMSong, type QMAudioInfo } from "../core/song";
 
-interface CdSongItem {
-  songid?: number;
-  songmid?: string;
-  songname?: string;
-  interval?: number;
-  singer?: Array<{ name?: string; mid?: string }>;
-  albumname?: string;
-  albummid?: string;
-  strMediaMid?: string;
-  pay?: {
-    payalbum?: number;
-    payplay?: number;
-  };
-  size128?: number;
-  size320?: number;
-  sizeape?: number;
-  sizeflac?: number;
-  sizeogg?: number;
-}
-
-interface CdListResp {
+interface DissResponse {
   code?: number;
-  cdlist?: Array<{
-    disstid?: string | number;
-    dissname?: string;
+  subcode?: number;
+  msg?: string;
+  songlist: Array<QMAudioInfo & { songInfo?: QMAudioInfo; musicData?: QMAudioInfo }>;
+  total_song_num?: number;
+  hasmore?: boolean | number;
+  dissname?: string;
+  desc?: string;
+  nickname?: string;
+  logo?: string;
+  dirinfo?: {
+    title?: string;
     desc?: string;
-    nickname?: string;
-    logo?: string;
-    visitnum?: number;
-    songnum?: number;
-    songlist?: CdSongItem[];
-  }>;
+    picurl?: string;
+    creator?: { nick?: string };
+  };
 }
-
-const SONGLIST_URL =
-  "https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg?type=1&json=1&utf8=1&onlysonglist=0&platform=yqq&needNewCode=0";
 
 /**
- * 获取 QM 歌单并转换为共享歌曲结构
- * @param params - 包含歌单 ID 的请求参数
- * @returns 歌单资料与歌曲列表
+ * 分页读取 QQ 歌单，喜欢目录通过当前登录账号鉴权
+ * @param params - 歌单 ID、分页偏移与预期账号，liked 表示我喜欢
+ * @returns 歌单资料、歌曲及分页状态
  */
 const songList: QMModule = async (params) => {
-  const { id } = params;
-
-  const url = `${SONGLIST_URL}&disstid=${encodeURIComponent(String(id ?? ""))}`;
-  const res = await fetch(url, {
-    headers: { ...QM_HEADERS, Referer: "https://y.qq.com/" },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`QM 歌单请求失败: HTTP ${res.status}`);
-  const text = await res.text();
-  const json = text
-    .trim()
-    .replace(/^jsonCallback\s*\(/, "")
-    .replace(/\)\s*;?$/, "");
-  const data = JSON.parse(json) as CdListResp;
-
-  const cd = data.cdlist?.[0];
-  if (!cd) return { code: 404, message: "歌单不存在" };
-
-  const songs: QMSong[] = (cd.songlist ?? []).map((item) => ({
-    id: String(item.songid ?? ""),
-    mid: item.songmid ?? "",
-    name: item.songname ?? "",
-    artist: formatSingerName(item.singer),
-    artists: item.singer ?? [],
-    album: item.albumname ?? "",
-    albumMid: item.albummid ?? "",
-    duration: (item.interval ?? 0) * 1000,
-    mediaMid: item.strMediaMid ?? "",
-    pay: item.pay,
-    size128: item.size128 ?? 0,
-    size320: item.size320 ?? 0,
-    sizeApe: item.sizeape ?? 0,
-    sizeFlac: item.sizeflac ?? 0,
-    sizeOgg: item.sizeogg ?? 0,
-  }));
-
+  const id = String(params.id ?? "");
+  const liked = id === "liked";
+  const userId = getQQMusicUin();
+  if (params.userId && params.userId !== userId) throw new Error("QM 账号已变更");
+  if (liked && userId === "0") throw new Error("请先登录 QM");
+  if (!liked && (!/^\d+$/.test(id) || !Number.isSafeInteger(Number(id)) || Number(id) <= 0)) {
+    throw new Error("无效的 QM 歌单 ID");
+  }
+  const offset = Math.max(0, Number(params.offset) || 0);
+  const encryptedUin = getQQMusicCookies().euin;
+  const authenticated = userId !== "0";
+  const data = await qmRequest<DissResponse>(
+    authenticated ? "music.srfDissInfo.DissInfo" : "music.srfDissInfo.aiDissInfo",
+    authenticated ? "CgiGetDiss" : "uniform_get_Dissinfo",
+    {
+      disstid: liked ? 0 : Number(id),
+      dirid: liked ? 201 : 0,
+      tag: true,
+      song_begin: offset,
+      song_num: 100,
+      userinfo: true,
+      orderlist: true,
+      onlysonglist: false,
+      enc_host_uin: encryptedUin || "",
+    },
+    { session: false },
+  );
+  if (getQQMusicUin() !== userId) throw new Error("QM 账号已变更");
+  if (data.code || data.subcode || !Array.isArray(data.songlist)) {
+    throw new Error(data.msg || `QM 歌单请求失败: ${data.code || data.subcode || "缺少歌曲列表"}`);
+  }
+  const total = data.total_song_num ?? data.songlist.length;
   return {
     code: 200,
-    id: cd.disstid,
-    name: cd.dissname ?? "",
-    description: cd.desc ?? "",
-    creator: cd.nickname ?? "",
-    cover: cd.logo ?? "",
-    playCount: cd.visitnum ?? 0,
-    total: cd.songnum ?? songs.length,
-    songs,
+    userId,
+    id,
+    name: data.dirinfo?.title ?? data.dissname,
+    description: data.dirinfo?.desc ?? data.desc,
+    creator: data.dirinfo?.creator?.nick ?? data.nickname,
+    cover: data.dirinfo?.picurl ?? data.logo,
+    total,
+    songs: data.songlist.map((song) => normalizeQMSong(song.songInfo ?? song.musicData ?? song)),
+    hasMore:
+      data.hasmore !== undefined
+        ? data.hasmore === true || data.hasmore === 1
+        : offset + data.songlist.length < total,
+    nextOffset: offset + data.songlist.length,
   };
 };
 

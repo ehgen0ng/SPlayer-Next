@@ -119,6 +119,14 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
     const updater = (await import("electron-updater")).default.autoUpdater;
     expect(updater.channel).toBe("latest");
     expect(updater.allowDowngrade).toBe(false);
+    expect(mocks.feed).toHaveBeenCalledWith({
+      provider: "github",
+      owner: "ehgen0ng",
+      repo: "SPlayer-Next",
+    });
+    expect(service.getUpdateState().meta?.releaseUrl).toBe(
+      "https://github.com/ehgen0ng/SPlayer-Next/releases/tag/v1.3.0",
+    );
     expect(service.getUpdateState().channel).toBe("stable");
     service.downloadUpdate();
     await flushPromises();
@@ -203,6 +211,10 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
     expect(mocks.install).not.toHaveBeenCalled();
     expect(service.getUpdateState().meta).toBeNull();
     await flushPromises();
+    expect(mocks.feed).toHaveBeenLastCalledWith({
+      provider: "generic",
+      url: "https://github.com/ehgen0ng/SPlayer-Next/releases/download/nightly",
+    });
   });
 
   it("下载失败后手动检查刷新目标，自动检查不干扰错误状态", async () => {
@@ -281,6 +293,10 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
     service.downloadUpdate();
     service.quitAndInstall();
     expect(service.getUpdateState().mode).toBe("external");
+    service.openDownloadPage();
+    expect(mocks.open).toHaveBeenCalledWith(
+      "https://github.com/ehgen0ng/SPlayer-Next/releases/tag/v1.3.0",
+    );
     expect(mocks.download).not.toHaveBeenCalled();
     expect(mocks.install).not.toHaveBeenCalled();
   });

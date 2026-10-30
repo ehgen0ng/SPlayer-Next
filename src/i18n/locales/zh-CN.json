@@ -467,6 +467,7 @@
     }
   },
   "player": {
+    "qualityFallback": "未找到可用的 {requested} 音源，已降级为 {actual}",
     "prev": "上一首",
     "next": "下一首",
     "transitioning": "过渡",
@@ -584,6 +585,9 @@
   },
   "quality": {
     "outputInfo": "输出信息",
+    "fileSection": "文件信息",
+    "fileSize": "文件大小",
+    "unknown": "未知",
     "outputSection": "输出信息",
     "outputMode": "输出模式",
     "dspSection": "音频处理",
@@ -938,6 +942,10 @@
       "hq": "极高 (HQ)",
       "lossless": "无损 (Lossless)",
       "hi-res": "高解析度无损 (Hi-Res)"
+    },
+    "preferPluginSource": {
+      "label": "优先使用插件音源",
+      "description": "优先尝试插件，实际音质不达标时继续换源，均不满足时降级并提示；已下载文件和歌曲缓存仍优先播放"
     },
     "allowTrialPlay": {
       "label": "允许播放试听",
@@ -2045,6 +2053,14 @@
       "label": "已安装插件"
     },
     "plugins": {
+      "autoSort": "音源插件自动排序",
+      "autoSortHint": "成功次数越多，排序越靠前",
+      "sort": "排序",
+      "sortTitle": "插件顺序",
+      "sortHint": "拖动或使用箭头调整，越靠前越优先尝试",
+      "successCount": "成功加载 {count} 次",
+      "moveUp": "上移插件",
+      "moveDown": "下移插件",
       "securityWarningTitle": "安装前请注意安全风险",
       "securityWarning": "插件为第三方代码，软件已尽可能做了沙箱隔离，但仍无法完全杜绝风险，恶意插件可能访问你的数据或执行危险操作。请仅安装来自可信来源的插件。",
       "hint": "从本地或在线安装",

@@ -68,7 +68,7 @@ vi.mock("@/stores/media", () => ({
   }),
 }));
 vi.mock("@/stores/streaming", () => ({ useStreamingStore: vi.fn() }));
-vi.mock("@/stores/plugins", () => ({ usePluginsStore: vi.fn() }));
+vi.mock("@/stores/plugins", () => ({ usePluginsStore: () => ({ recordMusicSuccess: vi.fn() }) }));
 vi.mock("@/stores/history", () => ({ useHistoryStore: () => ({ record: vi.fn() }) }));
 vi.mock("@/stores/library", () => ({ useLibraryStore: vi.fn() }));
 vi.mock("@/stores/queue", () => ({
