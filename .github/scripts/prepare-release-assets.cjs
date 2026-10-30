@@ -31,7 +31,7 @@ const walk = (dir, out = []) => {
  * @param {string} name - 文件名
  * @returns {boolean} 是否需要合并
  */
-const shouldMergeManifest = (name) => /^(latest|beta|alpha|nightly|fork)(-mac)?\.yml$/.test(name);
+const shouldMergeManifest = (name) => /^(latest|beta|alpha|nightly)(-mac)?\.yml$/.test(name);
 
 /**
  * 合并同平台不同架构的更新清单
@@ -59,15 +59,15 @@ const mergeManifests = (docs) => {
 };
 
 /**
- * 从版本号解析发布通道
+ * 从版本号解析发布通道，Fork 版本使用稳定通道
  * @param {string} version - 应用版本
- * @returns {"latest" | "beta" | "alpha" | "nightly" | "fork"} 发布通道
+ * @returns {"latest" | "beta" | "alpha" | "nightly"} 发布通道
  */
 const resolveChannel = (version) => {
   if (/-nightly(?:\.|$)/.test(version)) return "nightly";
   if (/-alpha(?:\.|$)/.test(version)) return "alpha";
   if (/-beta(?:\.|$)/.test(version)) return "beta";
-  if (/-fork(?:\.|$)/.test(version)) return "fork";
+  if (/-fork(?:\.|$)/.test(version)) return "latest";
   if (version.includes("-")) throw new Error(`不支持的预发布版本格式: ${version}`);
   return "latest";
 };
@@ -82,13 +82,12 @@ const VALIDATE_CHANNELS_MAP = {
   beta: ["beta", "alpha"],
   alpha: ["alpha"],
   nightly: ["nightly"],
-  fork: ["fork"],
 };
 
 /**
  * 为更不稳定的订阅通道创建清单别名
  * @param {string} outDir - 发布资源目录
- * @param {"latest" | "beta" | "alpha" | "nightly" | "fork"} channel - 发布通道
+ * @param {"latest" | "beta" | "alpha" | "nightly"} channel - 发布通道
  */
 const createChannelAliases = (outDir, channel) => {
   const aliases = ALIAS_CHANNELS_MAP[channel] ?? [];
@@ -105,7 +104,7 @@ const createChannelAliases = (outDir, channel) => {
  * 校验清单结构和引用资源
  * @param {string} outDir - 发布资源目录
  * @param {string} version - 应用版本
- * @param {"latest" | "beta" | "alpha" | "nightly" | "fork"} channel - 发布通道
+ * @param {"latest" | "beta" | "alpha" | "nightly"} channel - 发布通道
  */
 const validateManifests = (outDir, version, channel) => {
   const channels = VALIDATE_CHANNELS_MAP[channel] ?? [channel];

@@ -26,14 +26,13 @@ useExternalFileHandler();
 const showPlayerBar = computed(() => !!useMediaStore().track);
 const { isPlayerExpanded } = storeToRefs(status);
 
-/** 播放页展开状态同步与懒加载 */
+/** 首次展开播放页时加载组件 */
 const FullPlayer = defineAsyncComponent(() => import("@/components/player/FullPlayer/index.vue"));
 const fullPlayerLoaded = ref(isPlayerExpanded.value);
 watch(
   isPlayerExpanded,
   (expanded) => {
     if (expanded) fullPlayerLoaded.value = true;
-    window.api.window.setPlayerExpanded(expanded);
   },
   { immediate: true },
 );
@@ -107,7 +106,6 @@ watch(
   { immediate: true },
 );
 onBeforeUnmount(() => {
-  window.api.window.setPlayerExpanded(false);
   disposeCoverTransitions?.();
   cancelPlayerTransition();
   fullPlayerReady.value = false;

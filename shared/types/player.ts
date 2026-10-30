@@ -197,6 +197,8 @@ export interface LoadResult {
 export interface LoadOptions {
   /** 待消费的原生预载槽位代次 */
   preparedId?: string;
+  /** 首次加载时需要接管的渐进缓存租约 */
+  cacheLeaseId?: string;
   /** 是否自动播放，默认 true */
   autoPlay?: boolean;
   /**

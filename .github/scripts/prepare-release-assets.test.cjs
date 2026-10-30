@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { spawnSync } = require("node:child_process");
 const yaml = require("js-yaml");
 const { prepareReleaseAssets, resolveChannel } = require("./prepare-release-assets.cjs");
 
@@ -105,21 +106,91 @@ test("Nightly 版只发布 nightly 清单", () => {
   }
 });
 
-test("Fork 版合并多架构清单且不生成其他通道别名", () => {
+test("Fork 正式版保留版本号并生成 latest、beta 和 alpha 清单", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "splayer-release-fork-"));
   try {
     const src = path.join(root, "artifacts");
     const out = path.join(root, "out");
     const version = "1.2.1-fork.1";
-    createFixture(src, version, "fork");
-    prepareReleaseAssets(src, out, version);
+    createFixture(src, version, "latest");
+    prepareReleaseAssets(src, out, version, "Fork 正式版更新说明");
+    assert.equal(resolveChannel(version), "latest");
     for (const suffix of ["", "-mac", "-linux", "-linux-arm64"]) {
-      const manifest = yaml.load(fs.readFileSync(path.join(out, `fork${suffix}.yml`), "utf8"));
-      assert.equal(manifest.version, version);
-      assert.equal(manifest.files.length, suffix.startsWith("-linux") ? 1 : 2);
-      for (const channel of ["latest", "alpha", "beta", "nightly"]) {
+      for (const channel of ["latest", "beta", "alpha"]) {
+        const manifest = yaml.load(
+          fs.readFileSync(path.join(out, `${channel}${suffix}.yml`), "utf8"),
+        );
+        assert.equal(manifest.version, version);
+        assert.equal(manifest.files.length, suffix.startsWith("-linux") ? 1 : 2);
+        assert.equal(manifest.releaseNotes, "Fork 正式版更新说明");
+      }
+      for (const channel of ["fork", "nightly"]) {
         assert.equal(fs.existsSync(path.join(out, `${channel}${suffix}.yml`)), false);
       }
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("发布工作流将 Fork 和无后缀正式版创建为草稿，Alpha 和 Beta 保持预发布", () => {
+  const workflow = yaml.load(
+    fs.readFileSync(path.join(__dirname, "../workflows/release.yml"), "utf8"),
+  );
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "splayer-release-workflow-"));
+  try {
+    fs.mkdirSync(path.join(root, "release-assets"));
+    fs.writeFileSync(path.join(root, "release-assets/app.exe"), "installer");
+    for (const [version, channel, releaseFlag] of [
+      ["1.2.1-fork.1", "latest", "--draft"],
+      ["1.2.1-fork.2", "latest", "--draft"],
+      ["1.2.1", "latest", "--draft"],
+      ["1.3.0-alpha.1", "alpha", "--prerelease"],
+      ["1.3.0-beta.1", "beta", "--prerelease"],
+    ]) {
+      fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ version }));
+      for (const job of [workflow.jobs.build, workflow.jobs.release]) {
+        const envFile = path.join(root, "github-env");
+        fs.writeFileSync(envFile, "");
+        const metadataStep = job.steps.find((step) => step.name === "Verify release metadata");
+        const metadata = spawnSync("bash", ["-c", metadataStep.run], {
+          cwd: root,
+          env: { ...process.env, RELEASE_TAG: `v${version}`, GITHUB_ENV: envFile },
+          encoding: "utf8",
+        });
+        assert.equal(metadata.status, 0, metadata.stderr);
+        assert.ok(fs.readFileSync(envFile, "utf8").includes(`UPDATE_CHANNEL=${channel}\n`));
+      }
+      const releaseStep = workflow.jobs.release.steps.find(
+        (step) => step.name === "Create GitHub Release",
+      );
+      const argsFile = path.join(root, "release-args");
+      const release = spawnSync(
+        "bash",
+        [
+          "-c",
+          `# 记录发布参数，避免测试访问 GitHub\ngh() {
+            if [ "$1" = "view" ]; then return 1; fi
+            printf '%s\\n' "$@" > "$RELEASE_ARGS_FILE"
+          }\n${releaseStep.run}`,
+        ],
+        {
+          cwd: root,
+          env: {
+            ...process.env,
+            UPDATE_CHANNEL: channel,
+            RELEASE_TAG: `v${version}`,
+            GITHUB_REPOSITORY: "ehgen0ng/SPlayer-Next",
+            RELEASE_ARGS_FILE: argsFile,
+          },
+          encoding: "utf8",
+        },
+      );
+      assert.equal(release.status, 0, release.stderr);
+      const args = fs.readFileSync(argsFile, "utf8").trim().split("\n");
+      assert.deepEqual(args.slice(0, 3), ["release", "create", `v${version}`]);
+      assert.ok(args.includes(releaseFlag));
+      assert.equal(args.includes(releaseFlag === "--draft" ? "--prerelease" : "--draft"), false);
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

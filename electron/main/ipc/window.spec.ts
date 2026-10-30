@@ -18,7 +18,6 @@ vi.mock("electron", () => ({
 vi.mock("@main/store", () => ({ store: { get: vi.fn() } }));
 vi.mock("@main/utils/config", () => ({ isWin: false }));
 vi.mock("@main/utils/logger", () => ({ coreLog: { error: mocks.logError } }));
-vi.mock("@main/utils/powerBlocker", () => ({ setPlayerExpanded: vi.fn() }));
 vi.mock("@main/window", () => ({
   getMainWindow: () => ({ webContents: mocks.sender }),
   showReadyMainWindow: mocks.showReady,

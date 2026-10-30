@@ -124,9 +124,9 @@ export declare class AudioPlayer {
    */
   installAutoMixStems(id: string, source: string, window: JsAutoMixStemWindow): Promise<boolean>
   /**
-   * 在独立槽位中打开本地文件并提前解码，不改变当前歌曲或占用第二条输出流
+   * 在独立槽位中打开本地文件或渐进缓存并提前解码，不改变当前歌曲或占用第二条输出流
    * @param id - 用于取消和消费预载资源的任务标识
-   * @param source - 本地音频文件或已完成下载的缓存文件路径
+   * @param source - 本地文件路径或渐进缓存音源标识
    * @param startPosition - 预载起点，单位为秒，默认为 0
    * @param stems - 下一曲首部的有限分离窗口
    * @returns 当前任务仍有效且音频已准备就绪时返回 true，否则返回 false
@@ -465,12 +465,37 @@ export declare function probeAudioSource(source: string): Promise<JsMusicMetadat
 export declare function readTrackTags(path: string): Promise<JsTrackTags>
 
 /**
+ * 注册可增长缓存文件，返回可供预载和播放共用的音源标识
+ * @param id - 本次下载的唯一标识
+ * @param partialPath - 正在写入的临时文件
+ * @param finalPath - 下载完成后的文件
+ * @param upstream - 未缓存位置的补充读取地址
+ * @param total - 完整文件字节数
+ */
+export declare function registerCacheStream(id: string, partialPath: string, finalPath: string, upstream: string, total: number): string
+
+/**
+ * 释放缓存音源入口，现有读取器会在播放结束后自行释放文件句柄
+ * @param source - 注册返回的音源标识
+ */
+export declare function releaseCacheStream(source: string): void
+
+/**
  * 批量扫描目录，通过回调推送进度和结果
  *
  * 在后台线程中执行，不阻塞 Node.js 事件循环。
  * 每处理约 20 个文件回调一次 progress 事件，完成后回调 done 事件。
  */
 export declare function scanDirs(dirs: Array<string>, callback: (event: JsScanEvent) => void, coverCacheDir?: string | undefined | null, incrementalData?: Array<FileRecord> | undefined | null): void
+
+/**
+ * 更新已经写入磁盘的缓存字节数并通知下载终态
+ * @param source - 注册返回的音源标识
+ * @param available - 已落盘字节数
+ * @param complete - 是否已完成并重命名
+ * @param failed - 下载是否失败或取消
+ */
+export declare function updateCacheStream(source: string, available: number, complete: boolean, failed: boolean): void
 
 /**
  * 批量写入标签（异步），逐项返回结果，单项失败不中断整批。

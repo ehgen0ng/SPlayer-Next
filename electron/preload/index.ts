@@ -383,12 +383,6 @@ const api = {
     ready: (): Promise<void> => ipcRenderer.invoke("window:ready"),
     startupComplete: (): Promise<void> => ipcRenderer.invoke("window:startupComplete"),
     startupFailed: (error: string): void => ipcRenderer.send("window:startupFailed", error),
-    /**
-     * 同步播放页展开状态
-     * @param expanded - 播放页是否展开
-     */
-    setPlayerExpanded: (expanded: boolean): void =>
-      ipcRenderer.send("window:setPlayerExpanded", expanded),
     // 切换桌面歌词窗口
     toggleDesktopLyric: () => ipcRenderer.invoke("window:toggleDesktopLyric"),
     // 关闭桌面歌词窗口
@@ -679,20 +673,22 @@ const api = {
       lookup: (cacheKey: string): Promise<string | null> =>
         ipcRenderer.invoke("cache:song:lookup", cacheKey),
       /**
-       * 下载歌曲到缓存，预载调用方需要等待下载完成
+       * 下载歌曲到缓存，可在文件头可读后交给播放器继续读取
        * @param cacheKey - 音源与音质对应的缓存键
        * @param source - 歌曲来源
        * @param streamUrl - 下载地址
        * @param preloadId - 可选的预载消费者标识，用于租约保留和独立取消
-       * @returns 缓存文件路径，失败或取消时返回 null
+       * @param progressive - 是否提前返回渐进缓存入口
+       * @returns 可读缓存入口或完整文件路径，失败或取消时为空
        */
       fetch: (
         cacheKey: string,
         source: TrackSource,
         streamUrl: string,
         preloadId?: string,
+        progressive?: boolean,
       ): Promise<string | null> =>
-        ipcRenderer.invoke("cache:song:fetch", cacheKey, source, streamUrl, preloadId),
+        ipcRenderer.invoke("cache:song:fetch", cacheKey, source, streamUrl, preloadId, progressive),
       // 取消正在进行的下载
       cancel: (cacheKey: string): Promise<void> =>
         ipcRenderer.invoke("cache:song:cancel", cacheKey),

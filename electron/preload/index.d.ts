@@ -106,13 +106,15 @@ declare global {
            * @param source - 歌曲来源
            * @param streamUrl - 下载地址
            * @param preloadId - 可选的预载消费者标识，用于租约保留和独立取消
-           * @returns 缓存文件路径，失败或取消时返回 null
+           * @param progressive - 是否提前返回渐进缓存入口
+           * @returns 可读缓存入口或完整路径，失败或取消时为空
            */
           fetch: (
             cacheKey: string,
             source: TrackSource,
             streamUrl: string,
             preloadId?: string,
+            progressive?: boolean,
           ) => Promise<string | null>;
           cancel: (cacheKey: string) => Promise<void>;
         };

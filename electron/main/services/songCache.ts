@@ -5,7 +5,7 @@ import fsp, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { getEngine } from "@main/services/engine";
 import { app } from "electron";
 import { store } from "@main/store";
 import { getSongCacheDir } from "@main/utils/config";
@@ -67,6 +67,12 @@ interface InFlight {
   promise: Promise<string | null>;
   controller: AbortController;
   owners: Set<string>;
+  playable: Promise<string | null>;
+  resolvePlayable: (source: string | null) => void;
+  progressive: boolean;
+  finished: boolean;
+  available: number;
+  stream?: { source: string; total: number; filename: string };
 }
 
 /** 当前生效的歌曲缓存目录 */
@@ -75,6 +81,9 @@ let cacheDir = getSongCacheDir();
 const inFlight = new Map<string, InFlight>();
 /** 等待槽位的队列；只存 starter，槽位空出来时取队头执行 */
 const waiting: Array<() => void> = [];
+// 只保留正在预载或播放的入口，最后一个持有者释放时移除
+const cacheStreams = new Map<string, InFlight>();
+let playbackSource: string | undefined;
 let activeDownloads = 0;
 let preloadPin: { id: string; filename: string } | null = null;
 
@@ -152,10 +161,51 @@ export const pinPreload = (id: string, sourcePath: string): void => {
  */
 export const cancelPreload = (id: string): void => {
   if (preloadPin?.id === id) preloadPin = null;
-  for (const pending of inFlight.values()) {
-    if (pending.owners.delete(id) && pending.owners.size === 0) pending.controller.abort();
+  for (const pending of new Set([...inFlight.values(), ...cacheStreams.values()])) {
+    pending.owners.delete(id);
+    releaseUnused(pending);
   }
 };
+
+/**
+ * 清理没有消费者的缓存任务与原生入口
+ * @param entry - 下载及其共享读取状态
+ */
+const releaseUnused = (entry: InFlight): void => {
+  if (entry.owners.size) return;
+  if (!entry.finished) {
+    entry.controller.abort();
+    return;
+  }
+  if (entry.stream) {
+    getEngine().releaseCacheStream(entry.stream.source);
+    cacheStreams.delete(entry.stream.source);
+  }
+};
+
+/**
+ * 交接当前播放的缓存租约，必须先接管再取消预载
+ * @param source - 新音源，省略时释放当前播放
+ */
+export const setPlaybackSource = (source?: string): void => {
+  if (source === playbackSource) return;
+  const previous = playbackSource ? cacheStreams.get(playbackSource) : undefined;
+  const next = source ? cacheStreams.get(source) : undefined;
+  next?.owners.add("playback");
+  playbackSource = next ? source : undefined;
+  if (previous) {
+    previous.owners.delete("playback");
+    releaseUnused(previous);
+  }
+};
+
+/**
+ * 返回渐进缓存的完整大小，避免把当前已下载字节数当成文件大小
+ * @param source - 渐进缓存音源
+ * @returns 服务端声明的完整文件字节数
+ */
+export const getSourceSize = (source: string): number | undefined =>
+  cacheStreams.get(source)?.stream?.total;
 
 /**
  * 启动时孤儿清理
@@ -220,7 +270,9 @@ const evictIfNeeded = async (): Promise<void> => {
   let freed = 0;
   while (current > cap) {
     const victims = listLruVictims(EVICT_BATCH + 1).filter(
-      (row) => row.filename !== preloadPin?.filename,
+      (row) =>
+        row.filename !== preloadPin?.filename &&
+        ![...cacheStreams.values()].some((entry) => entry.stream?.filename === row.filename),
     );
     if (victims.length === 0) break;
     for (const victim of victims) {
@@ -243,15 +295,16 @@ const evictIfNeeded = async (): Promise<void> => {
  * @param cacheKey - 缓存键
  * @param source - 来源
  * @param streamUrl - 流 URL
- * @param controller - 控制器
+ * @param entry - 下载状态及消费者租约
  * @returns 文件路径
  */
 const runDownload = async (
   cacheKey: string,
   source: TrackSource,
   streamUrl: string,
-  controller: AbortController,
+  entry: InFlight,
 ): Promise<string | null> => {
+  const { controller } = entry;
   const start = Date.now();
   const filename = filenameFor(cacheKey);
   const finalPath = absPath(filename);
@@ -271,9 +324,13 @@ const runDownload = async (
         )
       ).url;
     }
-    const response = await fetch(streamUrl, { signal: controller.signal });
+    const response = await fetch(streamUrl, {
+      signal: controller.signal,
+      headers: { "Accept-Encoding": "identity" },
+    });
     if (!response.ok || !response.body) {
       songCacheLog.warn(`[fetch] fail key=${cacheKey} status=${response.status}`);
+      await response.body?.cancel();
       return null;
     }
 
@@ -281,18 +338,53 @@ const runDownload = async (
     // 拦截第三方代理常用 200+html 错误页冒充音频
     if (isRejectedMime(mime)) {
       songCacheLog.warn(`[fetch] reject mime key=${cacheKey} mime=${mime}`);
+      await response.body.cancel();
       return null;
     }
     const contentLengthHeader = response.headers.get("content-length");
     const declaredSize = contentLengthHeader ? Number(contentLengthHeader) : NaN;
     if (Number.isFinite(declaredSize) && declaredSize > sizeLimitBytes()) {
       songCacheLog.warn(`[fetch] skip oversize key=${cacheKey} declared=${declaredSize}`);
+      await response.body.cancel();
       return null;
     }
 
-    const nodeStream = Readable.fromWeb(response.body as never);
-    const writeStream = fs.createWriteStream(partPath);
-    await pipeline(nodeStream, writeStream, { signal: controller.signal });
+    const nodeStream = Readable.fromWeb(response.body as never, { signal: controller.signal });
+    const file = await fsp.open(partPath, "w");
+    const encoding = response.headers.get("content-encoding");
+    const knownLength =
+      Number.isSafeInteger(declaredSize) &&
+      declaredSize > 0 &&
+      (!encoding || encoding === "identity");
+    try {
+      for await (const chunk of nodeStream) {
+        controller.signal.throwIfAborted();
+        await file.writeFile(chunk);
+        entry.available += chunk.length;
+        if (entry.available > sizeLimitBytes()) throw new Error("歌曲缓存超过容量限制");
+        if (knownLength && entry.available > declaredSize) throw new Error("音频响应长度不一致");
+        if (entry.progressive && knownLength && !entry.stream) {
+          if (!(await looksLikeAudio(partPath))) throw new Error("响应不是音频文件");
+          const source = getEngine().registerCacheStream(
+            crypto.randomUUID(),
+            partPath,
+            finalPath,
+            streamUrl,
+            declaredSize,
+          );
+          entry.stream = { source, total: declaredSize, filename };
+          cacheStreams.set(source, entry);
+          getEngine().updateCacheStream(source, entry.available, false, false);
+          entry.resolvePlayable(source);
+        } else if (entry.stream) {
+          getEngine().updateCacheStream(entry.stream.source, entry.available, false, false);
+        }
+      }
+      if (knownLength && entry.available !== declaredSize) throw new Error("音频下载提前结束");
+    } finally {
+      nodeStream.destroy();
+      await file.close();
+    }
 
     const stat = await fsp.stat(partPath);
     if (stat.size === 0) {
@@ -312,7 +404,10 @@ const runDownload = async (
       return null;
     }
 
+    controller.signal.throwIfAborted();
     await fsp.rename(partPath, finalPath);
+    if (entry.stream)
+      getEngine().updateCacheStream(entry.stream.source, entry.available, true, false);
     const now = Date.now();
     upsert({
       cacheKey,
@@ -328,8 +423,12 @@ const runDownload = async (
     songCacheLog.info(`[fetch] done key=${cacheKey} size=${stat.size} ms=${Date.now() - start}`);
     return finalPath;
   } catch (err) {
+    const cancelled = controller.signal.aborted;
+    controller.abort();
+    if (entry.stream)
+      getEngine().updateCacheStream(entry.stream.source, entry.available, false, true);
     await fsp.unlink(partPath).catch(() => {});
-    if (controller.signal.aborted) {
+    if (cancelled) {
       songCacheLog.info(`[fetch] cancel key=${cacheKey}`);
     } else {
       songCacheLog.error(`[fetch] error key=${cacheKey}`, err);
@@ -373,13 +472,15 @@ export const lookup = async (cacheKey: string): Promise<string | null> => {
  * @param source - 来源
  * @param streamUrl - 流 URL
  * @param preloadId - 可选的预载消费者标识，用于保留缓存文件和独立取消下载
- * @returns 已存在或下载完成的缓存路径，下载失败、被取消或不允许缓存时返回 null
+ * @param progressive - 预载是否允许返回尚未下载完的共享读取入口
+ * @returns 可读缓存入口或完整路径，失败、取消或禁止缓存时为空
  */
 export const fetchAsync = (
   cacheKey: string,
   source: TrackSource,
   streamUrl: string,
   preloadId?: string,
+  progressive = false,
 ): Promise<string | null> => {
   if (!isCacheEnabled()) return Promise.resolve(null);
   if (source === "streaming" && !store.get("cache.songCache.cacheStreaming"))
@@ -389,28 +490,46 @@ export const fetchAsync = (
   const existing = inFlight.get(cacheKey);
   if (existing) {
     existing.owners.add(owner);
+    if (progressive && preloadId) {
+      existing.progressive = true;
+      return existing.playable;
+    }
     return existing.promise;
   }
   const controller = new AbortController();
-  const promise = (async () => {
+  const { promise: playable, resolve: resolvePlayable } = Promise.withResolvers<string | null>();
+  const entry: InFlight = {
+    controller,
+    owners: new Set([owner]),
+    playable,
+    resolvePlayable,
+    progressive: Boolean(progressive && preloadId),
+    finished: false,
+    available: 0,
+    promise: Promise.resolve(null),
+  };
+  inFlight.set(cacheKey, entry);
+  entry.promise = (async () => {
     const acquired = await acquireSlot(controller.signal);
-    if (!acquired) return null;
+    let result: string | null = null;
     try {
-      if (controller.signal.aborted) return null;
-      const cached = await lookup(cacheKey);
-      return cached ?? (await runDownload(cacheKey, source, streamUrl, controller));
+      if (!acquired || controller.signal.aborted) return null;
+      result = (await lookup(cacheKey)) ?? (await runDownload(cacheKey, source, streamUrl, entry));
+      return result;
     } finally {
-      if (inFlight.get(cacheKey)?.controller === controller) inFlight.delete(cacheKey);
-      releaseSlot();
+      entry.finished = true;
+      entry.owners.delete("background");
+      entry.resolvePlayable(result);
+      if (inFlight.get(cacheKey) === entry) inFlight.delete(cacheKey);
+      if (acquired) releaseSlot();
+      if (!result && entry.stream) {
+        getEngine().updateCacheStream(entry.stream.source, entry.available, false, true);
+        entry.owners.clear();
+      }
+      releaseUnused(entry);
     }
   })();
-  inFlight.set(cacheKey, { promise, controller, owners: new Set([owner]) });
-  void promise
-    .finally(() => {
-      if (inFlight.get(cacheKey)?.controller === controller) inFlight.delete(cacheKey);
-    })
-    .catch(() => {});
-  return promise;
+  return entry.progressive ? playable : entry.promise;
 };
 
 /**
@@ -428,6 +547,11 @@ export const cancel = (cacheKey: string): void => {
  * @param sourcePath - 传入原始来源路径（streamUrl 或本地路径），用来找到对应的 cacheKey 和文件
  */
 export const invalidate = async (sourcePath: string): Promise<void> => {
+  const stream = cacheStreams.get(sourcePath);
+  if (stream?.stream) {
+    stream.controller.abort();
+    sourcePath = absPath(stream.stream.filename);
+  }
   if (path.dirname(sourcePath) !== cacheDir) return;
   const filename = path.basename(sourcePath);
   const row = findByFilename(filename);
@@ -443,6 +567,11 @@ export const clearAll = async (): Promise<void> => {
   const pending = [...inFlight.values()];
   for (const entry of pending) entry.controller.abort();
   await Promise.allSettled(pending.map((entry) => entry.promise));
+  playbackSource = undefined;
+  for (const entry of cacheStreams.values()) {
+    entry.owners.clear();
+    releaseUnused(entry);
+  }
   dbClearAll();
   try {
     const entries = await fsp.readdir(cacheDir);

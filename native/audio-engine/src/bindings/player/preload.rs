@@ -14,6 +14,7 @@ pub struct PrepareNextTask {
     config: PreloadConfig,
     cover_dir: Option<String>,
     cancelled: Arc<AtomicBool>,
+    cancel_handle: HttpCancelHandle,
     stems: Option<JsAutoMixStemWindow>,
 }
 
@@ -30,7 +31,7 @@ impl Task for PrepareNextTask {
             let mut prepared = decoder::prepare_decode(
                 &self.source,
                 self.cover_dir.as_deref(),
-                HttpCancelHandle::new(),
+                self.cancel_handle.clone(),
             )?;
             if self.cancelled.load(Ordering::Acquire) {
                 return Ok(None);
@@ -132,9 +133,9 @@ impl AudioPlayer {
         .await
         .map_err(|error| Error::from_reason(error.to_string()))?
     }
-    /// 在独立槽位中打开本地文件并提前解码，不改变当前歌曲或占用第二条输出流
+    /// 在独立槽位中打开本地文件或渐进缓存并提前解码，不改变当前歌曲或占用第二条输出流
     /// @param id - 用于取消和消费预载资源的任务标识
-    /// @param source - 本地音频文件或已完成下载的缓存文件路径
+    /// @param source - 本地文件路径或渐进缓存音源标识
     /// @param startPosition - 预载起点，单位为秒，默认为 0
     /// @param stems - 下一曲首部的有限分离窗口
     /// @returns 当前任务仍有效且音频已准备就绪时返回 true，否则返回 false
@@ -147,7 +148,7 @@ impl AudioPlayer {
         stems: Option<JsAutoMixStemWindow>,
     ) -> Result<AsyncTask<PrepareNextTask>> {
         if source.starts_with("http://") || source.starts_with("https://") {
-            return Err(Error::from_reason("预载音频必须先完成本地缓存"));
+            return Err(Error::from_reason("预载音频必须使用本地文件或渐进缓存"));
         }
         let start_position = start_position.unwrap_or(0.0);
         if !start_position.is_finite() || start_position < 0.0 {
@@ -157,6 +158,8 @@ impl AudioPlayer {
         let mut player = self.inner.lock();
         player.preload.clear();
         let cancelled = Arc::new(AtomicBool::new(false));
+        let cancel_handle = HttpCancelHandle::new();
+        player.preload.cancel = Some(cancel_handle.clone());
         player.preload.id = Some(id.clone());
         player.preload.cancelled = Some(Arc::clone(&cancelled));
         Ok(AsyncTask::new(PrepareNextTask {
@@ -167,6 +170,7 @@ impl AudioPlayer {
             config: player.preload_config(),
             cover_dir: player.cover_cache_dir().map(String::from),
             cancelled,
+            cancel_handle,
             stems,
         }))
     }

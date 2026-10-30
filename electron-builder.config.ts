@@ -13,20 +13,20 @@ const fileAssociations = [...SUPPORTED_AUDIO_EXTENSIONS].map((extension) => {
 });
 
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
-const prereleaseChannel = /-(alpha|beta|nightly|fork)(?:\.|$)/.exec(packageVersion)?.[1];
-const inferredUpdateChannel = prereleaseChannel ?? "latest";
+const versionChannel = /-(alpha|beta|nightly|fork)(?:\.|$)/.exec(packageVersion)?.[1];
+// fork 后缀标识本分支的正式版本，更新仍使用稳定通道
+const inferredUpdateChannel = versionChannel === "fork" ? "latest" : (versionChannel ?? "latest");
 const updateChannel = process.env.UPDATE_CHANNEL ?? inferredUpdateChannel;
 
 if (
   updateChannel !== "latest" &&
   updateChannel !== "beta" &&
   updateChannel !== "alpha" &&
-  updateChannel !== "nightly" &&
-  updateChannel !== "fork"
+  updateChannel !== "nightly"
 ) {
   throw new Error(`不支持的更新通道: ${updateChannel}`);
 }
-if (packageVersion.includes("-") && !prereleaseChannel) {
+if (packageVersion.includes("-") && !versionChannel) {
   throw new Error(`不支持的预发布版本格式: ${packageVersion}`);
 }
 if (updateChannel !== inferredUpdateChannel) {

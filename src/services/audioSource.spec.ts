@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   error: vi.fn(),
   lookup: vi.fn(),
   cacheLookup: vi.fn(),
+  cacheFetch: vi.fn(),
   pluginResolve: vi.fn(),
   plugins: [] as PluginInfo[],
   settings: {
@@ -34,6 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.lookup.mockReset().mockResolvedValue(null);
   mocks.cacheLookup.mockReset().mockResolvedValue(null);
+  mocks.cacheFetch.mockReset().mockResolvedValue("C:/cache/lossless.bin");
   mocks.pluginResolve.mockReset();
   mocks.plugins = [];
   mocks.settings.player.preferPluginSource = false;
@@ -42,7 +44,7 @@ beforeEach(() => {
   Object.assign(window, {
     api: {
       download: { lookup: mocks.lookup },
-      cache: { song: { lookup: mocks.cacheLookup } },
+      cache: { song: { lookup: mocks.cacheLookup, fetch: mocks.cacheFetch } },
       plugins: { resolveUrl: mocks.pluginResolve },
     },
   });
@@ -183,6 +185,27 @@ describe("插件音源优先级", () => {
         }),
       }),
     );
+  });
+
+  it("预载降级结果按实际音质写缓存，不污染 Hi-Res 缓存键", async () => {
+    mocks.settings.system.cache.songCache.enabled = true;
+    const resolved = await resolveTrackSource(track, { quality: "hi-res" });
+    await resolved?.cacheRequest?.("slot", undefined, "lossless");
+    expect(mocks.cacheFetch).toHaveBeenCalledExactlyOnceWith(
+      "o:qqmusic:song-mid:lossless",
+      "qqmusic",
+      "https://plugin/song",
+      "slot",
+      undefined,
+    );
+  });
+
+  it("后台继续比较候选时跳过已确认未命中的下载和缓存查询", async () => {
+    mocks.settings.system.cache.songCache.enabled = true;
+    await resolveTrackSource(track, { skipDownloaded: true, skipCache: true });
+    expect(mocks.lookup).not.toHaveBeenCalled();
+    expect(mocks.cacheLookup).not.toHaveBeenCalled();
+    expect(mocks.pluginResolve).toHaveBeenCalledOnce();
   });
 
   it.each(["netease", "qqmusic", "kugou"] as const)("%s 关闭后保持内置接口优先", async (source) => {

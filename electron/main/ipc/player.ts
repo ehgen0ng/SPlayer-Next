@@ -498,6 +498,7 @@ export const registerPlayerIpc = (): void => {
           options.meta?.source === "streaming" ? options.meta.serverId : undefined;
         void streamingPlayback.stopStreamingPlayback();
         const completedSeq = ++loadSeq;
+        songCache.setPlaybackSource(source);
         cancelPreparedTrack(id);
         const inst = getPlayer();
         const state = inst.getStatus().state as PlayerState;
@@ -563,7 +564,9 @@ export const registerPlayerIpc = (): void => {
     const seq = ++loadSeq;
     streamingServerId = authoritative?.source === "streaming" ? authoritative.serverId : undefined;
     void streamingPlayback.stopStreamingPlayback();
+    songCache.setPlaybackSource(source);
     if (!options.preparedId) cancelPreparedTrack();
+    if (options.cacheLeaseId && !options.preparedId) songCache.cancelPreload(options.cacheLeaseId);
     try {
       const inst = getPlayer();
       if (authoritative?.source === "streaming" && !options.preparedId) inst.stop();
@@ -674,7 +677,10 @@ export const registerPlayerIpc = (): void => {
       );
       return result;
     } catch (error) {
-      if (seq === loadSeq) activeCueRange = null;
+      if (seq === loadSeq) {
+        activeCueRange = null;
+        songCache.setPlaybackSource();
+      }
       const code = classifyLoadError(error, source);
       // 解码失败的源指向歌曲缓存目录 → 文件已损坏，把这条缓存项作废
       if (
@@ -723,6 +729,7 @@ export const registerPlayerIpc = (): void => {
       activeCueRange = null;
       setCurrentTransitionRange();
       getPlayer().stop();
+      songCache.setPlaybackSource();
       return { success: true };
     } catch (error) {
       return fail(ErrorCode.UNKNOWN, error);
@@ -841,7 +848,7 @@ export const registerPlayerIpc = (): void => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
-      let size: number | undefined;
+      let size = songCache.getSourceSize(source);
       if (/^https?:\/\//i.test(source)) {
         const response = await net.fetch(source, {
           headers: { Range: "bytes=0-0", "Accept-Encoding": "identity" },
@@ -1101,6 +1108,7 @@ export const registerPlayerIpc = (): void => {
           cancelPreparedTrack();
           setCurrentTransitionRange();
           inst.stop();
+          songCache.setPlaybackSource();
           break;
         case "Seek":
           if (event.positionMs != null) {

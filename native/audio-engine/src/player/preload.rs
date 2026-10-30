@@ -17,9 +17,13 @@ pub struct PreparedPlayback {
 }
 
 impl Drop for PreparedPlayback {
+    /// 丢弃未接管的预载时停止解码并唤醒在途读取
     fn drop(&mut self) {
         if self.decoder.is_some() {
             self.shared.stop();
+            if let Some(cancel) = &self.cancel {
+                cancel.cancel();
+            }
         }
     }
 }
@@ -44,6 +48,7 @@ pub(crate) struct PreloadSlot {
     pub id: Option<String>,
     pub cancelled: Option<Arc<AtomicBool>>,
     pub ready: Option<PreparedPlayback>,
+    pub cancel: Option<HttpCancelHandle>,
 }
 
 impl PreloadSlot {
@@ -51,6 +56,9 @@ impl PreloadSlot {
     pub fn clear(&mut self) {
         if let Some(cancelled) = self.cancelled.take() {
             cancelled.store(true, Ordering::Release);
+        }
+        if let Some(cancel) = self.cancel.take() {
+            cancel.cancel();
         }
         self.ready = None;
         self.id = None;
@@ -109,6 +117,9 @@ impl InnerPlayer {
                 && ready.source == source
                 && ready.config == self.preload_config()
         });
+        if prepared.is_some() {
+            self.preload.cancel = None;
+        }
         self.preload.clear();
         prepared
     }

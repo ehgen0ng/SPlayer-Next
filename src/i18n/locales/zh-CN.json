@@ -1266,7 +1266,7 @@
     },
     "keepScreenAwake": {
       "label": "播放时保持屏幕常亮",
-      "description": "仅在播放页展开时生效"
+      "description": "播放或加载歌曲时保持常亮，最小化或后台播放同样生效"
     },
     "showTranslation": {
       "label": "显示翻译",

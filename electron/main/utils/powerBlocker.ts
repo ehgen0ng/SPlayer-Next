@@ -6,17 +6,11 @@ import { systemLog } from "./logger";
 let suspensionBlockerId: number | null = null;
 let displayBlockerId: number | null = null;
 let playbackState: PlayerState = "idle";
-let playerExpanded = false;
-let mainWindowVisible = false;
 
-/** 按播放状态、播放页和窗口可见性更新两类电源抑制 */
+/** 按播放状态和常亮开关更新电源抑制，切歌加载期间保持屏幕常亮 */
 export const refreshPowerBlocker = (): void => {
   const audioActive = playbackState === "playing" || playbackState === "loading";
-  const displayActive =
-    store.get("player.keepScreenAwake") &&
-    playerExpanded &&
-    mainWindowVisible &&
-    playbackState === "playing";
+  const displayActive = store.get("player.keepScreenAwake") && audioActive;
 
   if (audioActive && suspensionBlockerId === null) {
     suspensionBlockerId = powerSaveBlocker.start("prevent-app-suspension");
@@ -46,28 +40,8 @@ export const updatePowerBlocker = (state: PlayerState): void => {
   refreshPowerBlocker();
 };
 
-/**
- * 同步主窗口播放页展开状态
- * @param expanded - 播放页是否展开
- */
-export const setPlayerExpanded = (expanded: boolean): void => {
-  playerExpanded = expanded;
-  refreshPowerBlocker();
-};
-
-/**
- * 同步主窗口是否可供查看
- * @param visible - 窗口是否可见且未最小化
- */
-export const setMainWindowVisible = (visible: boolean): void => {
-  mainWindowVisible = visible;
-  refreshPowerBlocker();
-};
-
-/** 退出前释放全部电源抑制并清空播放页状态 */
+/** 退出前释放全部电源抑制并重置播放状态 */
 export const releasePowerBlocker = (): void => {
   playbackState = "idle";
-  playerExpanded = false;
-  mainWindowVisible = false;
   refreshPowerBlocker();
 };

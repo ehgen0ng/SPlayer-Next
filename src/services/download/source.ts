@@ -1,10 +1,6 @@
 import type { AudioQuality, Track } from "@shared/types/player";
-import {
-  compareAudioQuality,
-  getQualityLevel,
-  QUALITY_ORDER,
-  type QualityLevel,
-} from "@/utils/quality";
+import type { QualityLevel } from "@/utils/quality";
+import { selectAudioSource, type SourceSelectionAttempt } from "@/services/audioSourceSelection";
 import { isPlatform } from "@shared/types/platform";
 import { streamingSourceForTrack } from "@shared/utils/streamingSource";
 import { resolveByPlugin } from "@/services/audioSource";
@@ -50,69 +46,68 @@ export const resolveDownloadSource = async (
   }
   if (!isPlatform(track.source) && track.source !== "plugin") return null;
   const preferPlugin = useSettingsStore().player.preferPluginSource;
-  const requestedRank = QUALITY_ORDER.indexOf(level);
-  let fallback: { source: DownloadSource; rank: number; quality: AudioQuality } | undefined;
-  for (let rank = requestedRank; rank >= 0; rank--) {
-    const quality = QUALITY_ORDER[rank];
-    const skippedPlugins = new Set<string>();
-    let officialTried = track.source === "plugin";
-    let hasQualifiedPlugin = false;
-    while (!signal?.aborted) {
-      let source: DownloadSource | null = null;
-      if (preferPlugin || officialTried) {
-        const resolved = await resolveByPlugin(
-          track,
-          quality,
-          [...skippedPlugins],
-          (id) => skippedPlugins.add(id),
-          signal,
-        );
-        if (resolved.ok && !resolved.isTrial)
-          source = { url: resolved.url, pluginId: resolved.pluginId };
-      }
+  /**
+   * 按优先级解析本档下一个下载候选
+   * @param attempt - 已尝试来源和当前音质
+   * @returns 下载地址，当前档位耗尽时为空
+   */
+  const resolveNext = async (attempt: SourceSelectionAttempt): Promise<DownloadSource | null> => {
+    if (signal?.aborted) return null;
+    if (preferPlugin || attempt.skipOfficialOnline || track.source === "plugin") {
+      const resolved = await resolveByPlugin(
+        track,
+        attempt.quality,
+        attempt.skipPluginIds,
+        attempt.onPluginAttempt,
+        signal,
+      );
       if (signal?.aborted) return null;
-      if (!source && !officialTried) {
-        if (hasQualifiedPlugin) break;
-        officialTried = true;
-        try {
-          if (track.source === "netease") {
-            source = await resolveNeteaseDownloadUrl(track, quality, usePlaybackForDownload);
-          } else if (track.source === "qqmusic" || track.source === "kugou") {
-            const resolved = await (track.source === "qqmusic"
-              ? resolveQQMusicUrl(track, quality)
-              : resolveKugouUrl(track, quality));
-            if (resolved.available) source = { url: resolved.url };
-          }
-        } catch {
-          // 单个官方接口失败后继续本档的插件或降级流程
-        }
-        if (!source && !preferPlugin) continue;
-      }
-      if (!source) break;
-      if (signal?.aborted) return null;
-      // 与播放一致：开启插件优先时，以真实文件参数校验请求档位
-      if (!preferPlugin) return source;
+      if (resolved.ok && !resolved.isTrial)
+        return { url: resolved.url, pluginId: resolved.pluginId };
+    }
+    if (!attempt.skipOfficialOnline) {
       try {
-        const probed = await window.api.player.probeSource(source.url);
-        if (signal?.aborted) return null;
-        if (!probed.success || !probed.data) continue;
-        source = { ...source, quality: probed.data, format: probed.data.codec };
-        const actualRank = QUALITY_ORDER.indexOf(getQualityLevel(probed.data));
-        if (source.pluginId && actualRank >= rank) hasQualifiedPlugin = true;
-        if (
-          !fallback ||
-          (source.pluginId && actualRank >= rank && !fallback.source.pluginId) ||
-          compareAudioQuality(probed.data, fallback.quality) > 0
-        ) {
-          fallback = { source, rank: actualRank, quality: probed.data };
+        if (track.source === "netease") {
+          const source = await resolveNeteaseDownloadUrl(
+            track,
+            attempt.quality,
+            usePlaybackForDownload,
+          );
+          if (source) return source;
+        } else if (track.source === "qqmusic" || track.source === "kugou") {
+          const resolved = await (track.source === "qqmusic"
+            ? resolveQQMusicUrl(track, attempt.quality)
+            : resolveKugouUrl(track, attempt.quality));
+          if (resolved.available) return { url: resolved.url };
         }
       } catch {
-        // 无法打开或解码的地址继续换源，不下载错误页面
+        // 官方下载接口失败后，继续本档插件或降级流程
       }
     }
-    if (signal?.aborted) return null;
-    if (fallback && fallback.rank >= rank) return fallback.source;
-    if (!preferPlugin) break;
+    if (!preferPlugin && !attempt.skipOfficialOnline && track.source !== "plugin") {
+      const resolved = await resolveByPlugin(
+        track,
+        attempt.quality,
+        attempt.skipPluginIds,
+        attempt.onPluginAttempt,
+        signal,
+      );
+      if (resolved.ok && !resolved.isTrial && !signal?.aborted)
+        return { url: resolved.url, pluginId: resolved.pluginId };
+    }
+    return null;
+  };
+  if (!preferPlugin) {
+    return resolveNext({
+      quality: level,
+      skipPluginIds: [],
+      skipOfficialOnline: false,
+      onPluginAttempt: () => {},
+      signal,
+    });
   }
-  return null;
+  const selected = await selectAudioSource(level, resolveNext, (source) => source.url, signal);
+  return selected
+    ? { ...selected.source, quality: selected.quality, format: selected.quality.codec }
+    : null;
 };

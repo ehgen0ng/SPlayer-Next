@@ -10,13 +10,25 @@ const state = vi.hoisted(() => ({
   rows: new Map<string, SongCacheRow>(),
   limit: 64 / 1024 ** 3,
   resolveMedia: vi.fn(),
+  register: vi.fn((id: string) => `cache-stream://${id}`),
+  update: vi.fn(),
+  release: vi.fn(),
 }));
 vi.mock("@main/services/streaming/mediaSource", () => ({
   resolveStreamingMediaSource: state.resolveMedia,
 }));
+vi.mock("@main/services/engine", () => ({
+  getEngine: () => ({
+    registerCacheStream: state.register,
+    updateCacheStream: state.update,
+    releaseCacheStream: state.release,
+  }),
+}));
 vi.mock("electron", () => ({ app: { on: vi.fn() } }));
 vi.mock("@main/utils/config", () => ({ getSongCacheDir: () => state.directory }));
-vi.mock("@main/utils/logger", () => ({ songCacheLog: { info: vi.fn(), warn: vi.fn() } }));
+vi.mock("@main/utils/logger", () => ({
+  songCacheLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 vi.mock("@main/store", () => ({
   store: { get: (key: string) => (key.endsWith("sizeLimitGb") ? state.limit : true) },
 }));
@@ -149,5 +161,159 @@ describe("歌曲预载缓存生命周期", () => {
     cache.cancelPreload("next");
     await cache.fetchAsync("fourth", "netease", "https://music/fourth");
     expect(state.rows.has("pinned")).toBe(false);
+  });
+});
+
+describe("渐进缓存交接", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    state.rows.clear();
+    state.directory = await fs.mkdtemp(path.join(os.tmpdir(), "splayer-growing-cache-"));
+  });
+  afterEach(async () => {
+    const cache = await import("./songCache");
+    await cache.clearAll();
+    vi.unstubAllGlobals();
+    await fs.rm(state.directory, { recursive: true, force: true });
+  });
+
+  it("下载一半即返回可读入口，播放接管后不取消下载也不再请求 URL", async () => {
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    let signal!: AbortSignal;
+    const fetcher = vi.fn(async (_url: string, options: RequestInit) => {
+      signal = options.signal!;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            body = c;
+            c.enqueue(new Uint8Array(16).fill(1));
+          },
+        }),
+        { headers: { "content-length": "32", "content-type": "audio/wav" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const cache = await import("./songCache");
+    const source = await cache.fetchAsync(
+      "partial",
+      "qqmusic",
+      "https://audio/one",
+      "preload",
+      true,
+    );
+    expect(source).toMatch(/^cache-stream:/);
+    expect(state.rows.size).toBe(0);
+    const part = state.register.mock.calls.at(-1) as unknown as [string, string];
+    expect((await fs.stat(part[1])).size).toBe(16);
+    expect(cache.getSourceSize(source!)).toBe(32);
+    cache.setPlaybackSource(source!);
+    cache.cancelPreload("preload");
+    expect(signal.aborted).toBe(false);
+    expect(state.release).not.toHaveBeenCalled();
+    body.enqueue(new Uint8Array(16).fill(2));
+    body.close();
+    await vi.waitFor(() => expect(state.rows.size).toBe(1));
+    expect(await cache.lookup("partial")).not.toBeNull();
+    expect(state.update).toHaveBeenLastCalledWith(source, 32, true, false);
+    expect(fetcher).toHaveBeenCalledOnce();
+    cache.setPlaybackSource();
+    expect(state.release).toHaveBeenCalledWith(source);
+  });
+
+  it("取消最后的消费者通知读取失败并释放入口", async () => {
+    let signal!: AbortSignal;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, options: RequestInit) => {
+        signal = options.signal!;
+        return new Response(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(new Uint8Array(16).fill(1));
+            },
+          }),
+          { headers: { "content-length": "32" } },
+        );
+      }),
+    );
+    const cache = await import("./songCache");
+    const source = await cache.fetchAsync(
+      "cancel",
+      "qqmusic",
+      "https://audio/one",
+      "preload",
+      true,
+    );
+    cache.cancelPreload("preload");
+    expect(signal.aborted).toBe(true);
+    await vi.waitFor(() => expect(state.release).toHaveBeenCalledWith(source));
+    expect(state.update).toHaveBeenLastCalledWith(source, 16, false, true);
+    expect(state.rows.size).toBe(0);
+  });
+
+  it("下载提前结束会通知原生失败，不留下可命中的残缺缓存", async () => {
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(c) {
+                body = c;
+                c.enqueue(new Uint8Array(16).fill(1));
+              },
+            }),
+            { headers: { "content-length": "32" } },
+          ),
+      ),
+    );
+    const cache = await import("./songCache");
+    const source = await cache.fetchAsync(
+      "broken",
+      "qqmusic",
+      "https://audio/one",
+      "preload",
+      true,
+    );
+    body.close();
+    await vi.waitFor(() => expect(state.release).toHaveBeenCalledWith(source));
+    expect(state.update).toHaveBeenLastCalledWith(source, 16, false, true);
+    expect(await cache.lookup("broken")).toBeNull();
+    expect(await fs.readdir(state.directory)).toEqual([]);
+  });
+
+  it("没有完整长度时等待文件完成，不把半个文件当成完整音频", async () => {
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(c) {
+                body = c;
+                c.enqueue(new Uint8Array(16).fill(1));
+              },
+            }),
+          ),
+      ),
+    );
+    const cache = await import("./songCache");
+    let finished = false;
+    const pending = cache
+      .fetchAsync("unknown", "qqmusic", "https://audio/one", "preload", true)
+      .then((file) => {
+        finished = true;
+        return file;
+      });
+    await vi.waitFor(() => expect(body).toBeDefined());
+    expect(finished).toBe(false);
+    expect(state.register).not.toHaveBeenCalled();
+    body.enqueue(new Uint8Array(16).fill(2));
+    body.close();
+    const file = await pending;
+    expect(file).not.toMatch(/^cache-stream:/);
+    expect((await fs.stat(file!)).size).toBe(32);
   });
 });

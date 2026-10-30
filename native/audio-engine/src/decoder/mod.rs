@@ -1,4 +1,5 @@
 pub(crate) mod input;
+pub(crate) mod cache_stream;
 mod processing;
 mod reader;
 mod stem_processing;

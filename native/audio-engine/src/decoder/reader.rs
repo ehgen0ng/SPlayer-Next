@@ -32,13 +32,17 @@ impl DecoderData {
     }
 }
 
-/// 根据 source 协议打开音频：http(s) 走延迟 Range 源，其他走本地 File
-///
+/// 按音源协议打开本地文件、渐进缓存或网络 Range 读取器
+/// @param source - 音源路径或协议地址
+/// @param cancel_handle - 用于停止正在等待读取的句柄
 pub(super) fn open_source(
     source: &str,
     cancel_handle: HttpCancelHandle,
 ) -> Result<(AudioReader, Option<HttpCancelHandle>)> {
-    let (reader, cancel) = if source.starts_with("http://") || source.starts_with("https://") {
+    let (reader, cancel) = if source.starts_with(super::cache_stream::PREFIX) {
+        let cached = super::cache_stream::CacheStream::open(source, cancel_handle.clone())?;
+        (AudioReader::new(AudioInput::new(cached)?)?, Some(cancel_handle))
+    } else if source.starts_with("http://") || source.starts_with("https://") {
         let http = HttpAudioSource::new_with_cancel_handle(source, &cancel_handle)?;
         let reader = AudioReader::new(AudioInput::new(http)?)
             .with_context(|| format!("打开网络音频失败: {source}"))?;

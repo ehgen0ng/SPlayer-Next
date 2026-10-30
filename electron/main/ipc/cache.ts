@@ -260,7 +260,9 @@ export const registerCacheIpc = (): void => {
       source: TrackSource,
       streamUrl: string,
       preloadId?: string,
-    ): Promise<string | null> => songCache.fetchAsync(cacheKey, source, streamUrl, preloadId),
+      progressive?: boolean,
+    ): Promise<string | null> =>
+      songCache.fetchAsync(cacheKey, source, streamUrl, preloadId, progressive),
   );
 
   /** 歌曲文件级缓存：取消进行中的下载 */

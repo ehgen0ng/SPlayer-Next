@@ -13,10 +13,6 @@ vi.mock("electron", () => ({ shell: { openExternal: vi.fn() } }));
 vi.mock("@electron-toolkit/utils", () => ({ is: { dev: false } }));
 vi.mock("./create", () => ({ createWindow: mocks.createWindow }));
 vi.mock("@main/utils/logger", () => ({ coreLog: { error: vi.fn() } }));
-vi.mock("@main/utils/powerBlocker", () => ({
-  setMainWindowVisible: vi.fn(),
-  setPlayerExpanded: vi.fn(),
-}));
 vi.mock("@main/services/thumbar", () => ({ initThumbar: vi.fn() }));
 vi.mock("@main/services/thumbnail", () => ({ enableTaskbarThumbnail: vi.fn() }));
 vi.mock("@main/services/tray", () => ({ initTray: vi.fn() }));

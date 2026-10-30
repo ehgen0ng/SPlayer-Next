@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   stat: vi.fn(),
   probe: vi.fn(),
+  cachePlayback: vi.fn(),
+  cacheCancel: vi.fn(),
+  cacheSize: vi.fn(),
 }));
 vi.mock("node:fs/promises", () => ({ stat: mocks.stat }));
 vi.mock("electron", () => ({
@@ -105,7 +108,11 @@ vi.mock("@main/services/streaming/playback", () => ({
 vi.mock("@main/services/streaming/adapters/resolve", () => ({
   invalidateStreamingSession: vi.fn(),
 }));
-vi.mock("@main/services/songCache", () => ({}));
+vi.mock("@main/services/songCache", () => ({
+  setPlaybackSource: mocks.cachePlayback,
+  cancelPreload: mocks.cacheCancel,
+  getSourceSize: mocks.cacheSize,
+}));
 vi.mock("@main/services/thumbar", () => ({ getThumbar: () => null }));
 vi.mock("@main/services/tray", () => ({ setTraySongName: vi.fn(), setTrayPlayState: vi.fn() }));
 vi.mock("@main/services/thumbnail", () => ({ setTaskbarThumbnailCover: vi.fn() }));
@@ -147,8 +154,33 @@ describe("交接响应的主进程竞态保护", () => {
     mocks.fetch.mockReset();
     mocks.stat.mockReset();
     mocks.probe.mockReset();
+    mocks.cacheSize.mockReset();
     const { registerPlayerIpc } = await import("./player");
     registerPlayerIpc();
+  });
+
+  it("PCM 未就绪时先接管缓存，再取消预载任务", async () => {
+    const result = await invoke("player:load", "cache-stream://next", { cacheLeaseId: "pending" });
+    expect(result).toMatchObject({ success: true });
+    expect(mocks.cachePlayback).toHaveBeenCalledWith("cache-stream://next");
+    expect(mocks.cacheCancel).toHaveBeenCalledWith("pending");
+    expect(mocks.cachePlayback.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.cancel.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.cachePlayback.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.cacheCancel.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.load.mock.calls[0]![0]).toBe("cache-stream://next");
+  });
+
+  it("渐进缓存直接返回完整文件大小", async () => {
+    mocks.cacheSize.mockReturnValue(84502272);
+    expect(await invoke("player:getSourceSize", "cache-stream://next")).toEqual({
+      success: true,
+      data: 84502272,
+    });
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.stat).not.toHaveBeenCalled();
   });
 
   it("独立探测返回原文件音质且不改变当前播放", async () => {

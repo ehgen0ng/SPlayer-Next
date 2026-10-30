@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "要发布的标签（例如 v1.1.0-beta.1 或 v1.1.0-alpha.1）"
+        description: "要发布的标签（例如 v1.2.1-fork.1 或 v1.3.0-beta.1）"
         required: true
         type: string
 
@@ -92,7 +92,7 @@ jobs:
               echo "UPDATE_CHANNEL=beta" >> "$GITHUB_ENV"
               ;;
             *-fork|*-fork.*)
-              echo "UPDATE_CHANNEL=fork" >> "$GITHUB_ENV"
+              echo "UPDATE_CHANNEL=latest" >> "$GITHUB_ENV"
               ;;
             *-*)
               echo "不支持的预发布版本格式: $VERSION"
@@ -198,7 +198,7 @@ jobs:
               echo "UPDATE_CHANNEL=beta" >> "$GITHUB_ENV"
               ;;
             *-fork|*-fork.*)
-              echo "UPDATE_CHANNEL=fork" >> "$GITHUB_ENV"
+              echo "UPDATE_CHANNEL=latest" >> "$GITHUB_ENV"
               ;;
             *-*)
               echo "不支持的预发布版本格式: $VERSION"
@@ -228,7 +228,7 @@ jobs:
           ls -1 release-assets
 
       # 用官方 gh CLI 确定性创建 Release
-      # 正式版保持草稿，预览版直接发布为 prerelease
+      # 正式版（含 Fork）保持草稿，预览版直接发布为 prerelease
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

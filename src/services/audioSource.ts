@@ -1,4 +1,4 @@
-import type { Track, TrackSource } from "@shared/types/player";
+import type { AudioQuality, Track, TrackSource } from "@shared/types/player";
 import type { Platform } from "@shared/types/platform";
 import type { QualityLevel } from "@/utils/quality";
 import { streamingSourceForTrack } from "@shared/utils/streamingSource";
@@ -26,6 +26,10 @@ export interface ResolveTrackSourceOptions {
   onPluginAttempt?: (pluginId: string) => void;
   /** 已下载文件加载失败时跳过，继续解析缓存或在线音源 */
   skipDownloaded?: boolean;
+  /** 后台已确认需要在线选源时不重复读取缓存 */
+  skipCache?: boolean;
+  /** 取消后台解析，停止后续插件请求 */
+  signal?: AbortSignal;
   /** 将解析失败原因交给播放流程，供提示和跳曲决策使用 */
   onError?: (error: string) => void;
   /** 要跳过的插件 ID 列表 */
@@ -225,6 +229,7 @@ const resolveOnlineUrl = async (
       songLevel,
       options.skipPluginIds ?? [],
       options.onPluginAttempt,
+      options.signal,
     );
     if (pluginResolved.ok) return pluginResolved;
   }
@@ -278,6 +283,7 @@ const resolveOnlineUrl = async (
     songLevel,
     options.skipPluginIds ?? [],
     options.onPluginAttempt,
+    options.signal,
   );
   if (pluginResolved.ok) return pluginResolved;
   if (trialUrl && settings.player.allowTrialPlay) {
@@ -298,13 +304,22 @@ export interface ResolvedTrackSource {
   fromCache: boolean;
   provider: "local" | "download" | "cache" | "streaming" | "official" | "plugin" | "trial";
   pluginId?: string;
+  /** 后台已完成候选比较时记录真实音质，切歌时复用选择结果 */
+  verifiedQuality?: AudioQuality;
   /**
    * 下载音源并返回可供原生预载使用的缓存路径
    * @param preloadId - 可选的预载消费者标识，用于缓存租约和独立取消
    * @param signal - 在解析下载地址期间取消任务的信号
-   * @returns 缓存路径，未完成下载或已取消时返回 null
+   * @param quality - 校验后的实际音质，避免降级文件占用高音质缓存键
+   * @param progressive - 是否允许提前返回渐进缓存入口
+   * @returns 可读缓存入口或完整文件路径，取消或失败时为空
    */
-  cacheRequest?: (preloadId?: string, signal?: AbortSignal) => Promise<string | null>;
+  cacheRequest?: (
+    preloadId?: string,
+    signal?: AbortSignal,
+    quality?: QualityLevel,
+    progressive?: boolean,
+  ) => Promise<string | null>;
 }
 
 /**
@@ -341,6 +356,7 @@ export const resolveTrackSource = async (
       songLevel,
       options.skipPluginIds,
       options.onPluginAttempt,
+      options.signal,
     );
     if (!resolved.ok) {
       reportLoadError(resolved.errorCode, options);
@@ -373,7 +389,7 @@ export const resolveTrackSource = async (
   }
   const cacheKey = cacheKeyForTrack(track, songLevel);
   const cacheEnabled = settings.system.cache?.songCache?.enabled === true && cacheKey !== null;
-  if (cacheEnabled) {
+  if (cacheEnabled && !options.skipCache) {
     const cached = await window.api.cache.song.lookup(cacheKey!);
     if (cached) return { source: cached, fromCache: true, provider: "cache" };
   }
@@ -420,9 +436,15 @@ export const resolveTrackSource = async (
         pluginId: resolved.pluginId,
       };
       if (cacheEnabled && !resolved.isTrial) {
-        result.cacheRequest = async (preloadId, signal) => {
+        result.cacheRequest = async (preloadId, signal, quality, progressive) => {
           if (signal?.aborted) return null;
-          return window.api.cache.song.fetch(cacheKey, track.source, url, preloadId);
+          return window.api.cache.song.fetch(
+            quality ? cacheKeyForTrack(track, quality)! : cacheKey,
+            track.source,
+            url,
+            preloadId,
+            progressive,
+          );
         };
       }
       return result;

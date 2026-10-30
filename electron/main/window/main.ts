@@ -11,7 +11,6 @@ import { isAppQuitting } from "@main/utils/lifecycle";
 import { broadcast } from "@main/utils/broadcast";
 import { CURRENT_AGREEMENT_VERSION } from "@shared/constants/agreement";
 import { coreLog } from "@main/utils/logger";
-import { setMainWindowVisible, setPlayerExpanded } from "@main/utils/powerBlocker";
 
 /** 判断是否应用内部导航 */
 const isInternalNavigation = (url: string): boolean => {
@@ -26,6 +25,7 @@ let startupShown = false;
 
 /**
  * 创建主窗口
+ * @returns 主窗口实例
  */
 export const createMainWindow = (): BrowserWindow => {
   const remember = store.get("system.rememberWindowState") ?? true;
@@ -66,15 +66,6 @@ export const createMainWindow = (): BrowserWindow => {
   // 缩略图工具栏
   mainWindow.once("show", () => {
     initThumbar(mainWindow!);
-  });
-
-  mainWindow.on("show", () => setMainWindowVisible(!mainWindow!.isMinimized()));
-  mainWindow.on("hide", () => setMainWindowVisible(false));
-  mainWindow.on("minimize", () => setMainWindowVisible(false));
-  mainWindow.on("restore", () => setMainWindowVisible(mainWindow!.isVisible()));
-  mainWindow.webContents.on("render-process-gone", () => setPlayerExpanded(false));
-  mainWindow.webContents.on("did-start-navigation", (_event, _url, inPlace, isMainFrame) => {
-    if (isMainFrame && !inPlace) setPlayerExpanded(false);
   });
 
   mainWindow.webContents.on("did-finish-load", () => {
@@ -146,8 +137,6 @@ export const createMainWindow = (): BrowserWindow => {
   });
 
   mainWindow.on("closed", () => {
-    setMainWindowVisible(false);
-    setPlayerExpanded(false);
     mainWindow = null;
   });
 

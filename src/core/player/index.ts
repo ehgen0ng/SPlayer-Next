@@ -62,6 +62,8 @@ interface LoadRuntimeOptions {
   skipOnlineMetadata?: boolean;
   /** 待消费的原生预载槽位标识，仅用于首次加载尝试 */
   preparedId?: string;
+  /** PCM 尚未就绪时需要接管的渐进缓存租约 */
+  cacheLeaseId?: string;
   /** 是否抑制错误提示 */
   suppressErrorToast?: boolean;
   /** 本次播放的来源上下文 */
@@ -72,6 +74,8 @@ interface LoadRuntimeOptions {
 
 /** 单次音源兜底过程的重试状态 */
 interface SourceRetryState {
+  /** 预载文件失效后不再重复命中旧缓存 */
+  skipCache: boolean;
   /** 已下载文件加载失败后不再重复命中 */
   skipDownloaded: boolean;
   /** 是否已放弃官方在线接口，后续仅尝试插件 */
@@ -200,6 +204,7 @@ export const load = async (
         meta,
         context: options.context,
         preparedId: options.preparedId,
+        cacheLeaseId: options.cacheLeaseId,
       }));
     // 竞态保护
     if (token !== loadToken) return { ok: false };
@@ -244,6 +249,7 @@ export const load = async (
 
 /** 创建音源重试状态 */
 const createSourceRetryState = (): SourceRetryState => ({
+  skipCache: false,
   skipDownloaded: false,
   skipOfficialOnline: false,
   skippedPluginIds: new Set<string>(),
@@ -269,6 +275,7 @@ const resolveTrackSourceWithRetry = (
     quality,
     onPluginAttempt: (pluginId) => retry.skippedPluginIds.add(pluginId),
     skipDownloaded: retry.skipDownloaded,
+    skipCache: retry.skipCache,
     skipOfficialOnline: retry.skipOfficialOnline,
     skipPluginIds: [...retry.skippedPluginIds],
   });
@@ -307,6 +314,7 @@ const markRetryableSourceFailure = (
  * @param retryOnAnyFailure - 是否对任意加载失败继续换源
  * @param initialResolved - 已解析的预载音源，首次尝试时优先使用
  * @param preparedId - 与首次尝试音源对应的原生预载槽位标识
+ * @param cacheLeaseId - 首次尝试接管的渐进缓存租约
  * @returns 本轮加载结果，包含取消、无法解析或已完成加载的状态
  */
 const loadTrackSourceWithFallback = async (
@@ -317,6 +325,7 @@ const loadTrackSourceWithFallback = async (
   retryOnAnyFailure = false,
   initialResolved?: ResolvedTrackSource | null,
   preparedId?: string,
+  cacheLeaseId?: string,
 ): Promise<LoadSourceResult> => {
   let retry = createSourceRetryState();
   const settings = useSettingsStore();
@@ -354,18 +363,26 @@ const loadTrackSourceWithFallback = async (
         useFallback = true;
       } else if (attemptRank > 0) {
         attemptRank--;
-        retry = { ...createSourceRetryState(), skipDownloaded: retry.skipDownloaded };
+        retry = {
+          ...createSourceRetryState(),
+          skipDownloaded: retry.skipDownloaded,
+          skipCache: retry.skipCache,
+        };
         continue;
       }
     }
     // 没有可用插件不代表原音源失败原因，优先保留实际加载错误
     if (!resolved) return lastFailure ?? { status: "unresolved", error: resolutionError };
     const verify =
-      checkQuality && (resolved.provider === "plugin" || resolved.provider === "official");
+      checkQuality &&
+      (resolved.provider === "plugin" ||
+        resolved.provider === "official" ||
+        Boolean(usingInitial && resolved.verifiedQuality));
     // 校验完成前保持静音，避免尝试多个音源时播放出片段
     const result = await load(resolved.source, verify ? false : autoPlay, track, {
       skipOnlineMetadata: metadataRequested,
       preparedId: usingInitial ? preparedId : undefined,
+      cacheLeaseId: usingInitial ? cacheLeaseId : undefined,
       suppressErrorToast: true,
       context,
     });
@@ -374,6 +391,13 @@ const loadTrackSourceWithFallback = async (
     if (result.ok && verify) {
       const actual = getQualityLevel(result.quality);
       const rank = qualityOrder.indexOf(actual);
+      const preselected = usingInitial && resolved.verifiedQuality;
+      if (preselected && rank < qualityOrder.indexOf(getQualityLevel(preselected))) {
+        // 已预选的文件参数发生变化，跳过旧缓存重新选源
+        retry.skipCache = true;
+        useStatusStore().trackLoading = true;
+        continue;
+      }
       console.info("[player:quality]", {
         provider: resolved.provider,
         pluginId: resolved.pluginId,
@@ -383,7 +407,12 @@ const loadTrackSourceWithFallback = async (
         codec: result.quality?.codec,
         bitRate: result.quality?.bitRate,
       });
-      if (!useFallback && result.quality && markRetryableSourceFailure(resolved, retry)) {
+      if (
+        !preselected &&
+        !useFallback &&
+        result.quality &&
+        markRetryableSourceFailure(resolved, retry)
+      ) {
         const qualifiedPlugin = resolved.provider === "plugin" && rank >= attemptRank;
         if (qualifiedPlugin) retry.skipOfficialOnline = true;
         if (
@@ -419,7 +448,11 @@ const loadTrackSourceWithFallback = async (
       }
       if (!shouldContinue()) return { status: "cancelled" };
     }
-    if (result.ok && resolved.provider === "plugin" && resolved.pluginId) {
+    if (
+      result.ok &&
+      resolved.pluginId &&
+      (resolved.provider === "plugin" || Boolean(resolved.verifiedQuality))
+    ) {
       usePluginsStore().recordMusicSuccess(resolved.pluginId);
     }
     if (!result.ok) lastFailure = { status: "loaded", result, resolved };
@@ -432,6 +465,7 @@ const loadTrackSourceWithFallback = async (
       resolved.provider !== "download" &&
       (resolved.provider !== "cache" || Boolean(result.error && isSkippableError(result.error)))
     ) {
+      if (resolved.provider === "cache") retry.skipCache = true;
       continue;
     }
     const canRetry =
@@ -487,7 +521,8 @@ const loadTrack = async (
   lyricLoader.beginLoad();
   resetForLoad(track.duration ?? 0, transitionResult?.data?.playback);
   // 已准备的槽位由原生 load 接管；提前 stop 会连同备用槽一起释放
-  if (!transitionResult && !preloaded?.preparedId) void window.api.player.stop();
+  if (!transitionResult && !preloaded?.preparedId && !preloaded?.cacheLeaseId)
+    void window.api.player.stop();
   // 是否可跳曲
   let shouldSkip = false;
   try {
@@ -509,6 +544,7 @@ const loadTrack = async (
             false,
             preloaded?.source,
             preloaded?.preparedId,
+            preloaded?.cacheLeaseId,
           );
     if (loaded.status === "cancelled") return;
     if (loaded.status === "unresolved") {
@@ -525,6 +561,19 @@ const loadTrack = async (
         handleError(result.error);
         shouldSkip = true;
       } else if (result.ok) {
+        if (transitionResult && resolved.verifiedQuality) {
+          const actual = getQualityLevel(result.quality);
+          const requested = settings.player.songLevel;
+          if (QUALITY_ORDER.indexOf(actual) < QUALITY_ORDER.indexOf(requested)) {
+            toast.warning(
+              i18n.global.t("player.qualityFallback", {
+                requested: QUALITY_LABELS[requested],
+                actual: QUALITY_LABELS[actual],
+              }),
+            );
+          }
+          if (resolved.pluginId) usePluginsStore().recordMusicSuccess(resolved.pluginId);
+        }
         // 用户主动触发的成功播放记入历史；initPlayer 的恢复路径走 load() 不经此处
         void useHistoryStore().record(track);
         if (resolved.cacheRequest) {

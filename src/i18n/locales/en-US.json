@@ -1266,7 +1266,7 @@
     },
     "keepScreenAwake": {
       "label": "Keep screen awake during playback",
-      "description": "Only while Now Playing is expanded"
+      "description": "Keeps the screen awake while playing or loading tracks, including in the background"
     },
     "showTranslation": {
       "label": "Show Translation",

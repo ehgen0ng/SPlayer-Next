@@ -5,11 +5,13 @@ use napi_derive::napi;
 use tracing::info;
 
 mod analysis;
+mod cache_stream;
 mod player;
 mod scanner;
 mod tags;
 
 pub use analysis::*;
+pub use cache_stream::*;
 pub use player::*;
 pub use scanner::*;
 pub use tags::*;

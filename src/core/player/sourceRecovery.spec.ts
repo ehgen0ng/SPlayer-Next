@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   warning: vi.fn(),
   pluginResolve: vi.fn(),
   recordMusicSuccess: vi.fn(),
+  consume: vi.fn(),
   plugins: [] as PluginInfo[],
   playerSettings: { songLevel: "hq", allowTrialPlay: false, preferPluginSource: false },
   systemPlayer: { rememberLastTrack: true, autoPlay: false },
@@ -48,7 +49,7 @@ vi.mock("localforage", () => ({
 vi.mock("./fm", () => ({}));
 vi.mock("./stats", () => ({ installPlayStats: vi.fn(), onTrackEnded: vi.fn() }));
 vi.mock("@/services/nextTrackPreloader", () => ({
-  consumePreloadedTrack: () => null,
+  consumePreloadedTrack: mocks.consume,
   invalidateNextTrackPreload: vi.fn(),
   scheduleNextTrackPreload: vi.fn(),
 }));
@@ -94,6 +95,7 @@ beforeEach(async () => {
   vi.useFakeTimers();
   mocks.playerSettings.songLevel = "hq";
   mocks.playerSettings.preferPluginSource = false;
+  mocks.consume.mockReturnValue(null);
   mocks.systemPlayer.autoPlay = false;
   mocks.plugins = [];
   const { createPinia, setActivePinia } = await import("pinia");
@@ -245,6 +247,81 @@ describe("插件优先按实际解码音质换源", () => {
     expect(status.currentSource).toBe("https://plugin/b.flac");
     expect(media.detail?.quality).toEqual(qualities.b);
     expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("b");
+    expect(mocks.play).toHaveBeenCalledOnce();
+  });
+
+  it.each([true, false])(
+    "后台已完成选源时切歌只加载一次，不再轮询插件，完整缓存=%s",
+    async (cached) => {
+      mocks.playerSettings.songLevel = "hi-res";
+      const source = cached ? "C:/cache/next.flac" : "https://plugin/b.flac";
+      mocks.consume.mockReturnValue({
+        trackId: "next",
+        preparedId: cached ? "slot" : undefined,
+        source: {
+          source,
+          provider: cached ? "cache" : "plugin",
+          fromCache: cached,
+          pluginId: "b",
+          verifiedQuality: lossless,
+        },
+      });
+      mocks.load.mockResolvedValueOnce({
+        success: true,
+        data: { detail: { quality: lossless }, mediaInfo: { duration: 180000 } },
+      });
+      await player.playAtIndex(1);
+      expect(mocks.pluginResolve).not.toHaveBeenCalled();
+      expect(mocks.request).not.toHaveBeenCalled();
+      expect(mocks.load).toHaveBeenCalledOnce();
+      expect(status.currentSource).toBe(source);
+      expect(mocks.play).toHaveBeenCalledOnce();
+      expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("b");
+      expect(mocks.warning).toHaveBeenCalledExactlyOnceWith("player.qualityFallback");
+    },
+  );
+
+  it("PCM 尚未准备好时直接交接半成品缓存，不先停止并取消它", async () => {
+    mocks.consume.mockReturnValue({
+      trackId: "next",
+      cacheLeaseId: "pending",
+      source: {
+        source: "cache-stream://next",
+        provider: "cache",
+        fromCache: true,
+        pluginId: "b",
+        verifiedQuality: lossless,
+      },
+    });
+    mocks.load.mockResolvedValueOnce({
+      success: true,
+      data: { detail: { quality: lossless }, mediaInfo: { duration: 180000 } },
+    });
+    await player.playAtIndex(1);
+    expect(mocks.stop).not.toHaveBeenCalled();
+    expect(mocks.load).toHaveBeenCalledWith(
+      "cache-stream://next",
+      expect.objectContaining({ cacheLeaseId: "pending" }),
+    );
+    expect(mocks.pluginResolve).not.toHaveBeenCalled();
+    expect(status.currentSource).toBe("cache-stream://next");
+  });
+
+  it("预载缓存文件损坏时才重新解析在线音源", async () => {
+    mocks.consume.mockReturnValue({
+      trackId: "next",
+      source: {
+        source: "C:/cache/broken.flac",
+        provider: "cache",
+        fromCache: true,
+        pluginId: "b",
+        verifiedQuality: lossless,
+      },
+    });
+    mocks.load.mockResolvedValueOnce({ success: false, error: "FILE_DECODE_ERROR" });
+    await player.playAtIndex(1);
+    expect(mocks.pluginResolve).toHaveBeenCalled();
+    expect(status.currentSource).toBe("https://plugin/c.flac");
     expect(mocks.play).toHaveBeenCalledOnce();
   });
 

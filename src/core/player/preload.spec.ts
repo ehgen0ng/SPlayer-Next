@@ -43,6 +43,8 @@ const mocks = vi.hoisted(() => {
     load: vi.fn(),
     stop: vi.fn(),
     invalidate: vi.fn(),
+    recordMusicSuccess: vi.fn(),
+    warning: vi.fn(),
   };
 });
 vi.mock("./events", () => ({ handleEvent: vi.fn() }));
@@ -55,6 +57,7 @@ vi.mock("@/stores/settings", () => ({
       transitionMode: mocks.transitionMode,
       transitionPreference: mocks.transitionPreference,
       automixCrossfadeFallback: mocks.automixCrossfadeFallback,
+      songLevel: "hi-res",
     },
   }),
 }));
@@ -68,7 +71,9 @@ vi.mock("@/stores/media", () => ({
   }),
 }));
 vi.mock("@/stores/streaming", () => ({ useStreamingStore: vi.fn() }));
-vi.mock("@/stores/plugins", () => ({ usePluginsStore: () => ({ recordMusicSuccess: vi.fn() }) }));
+vi.mock("@/stores/plugins", () => ({
+  usePluginsStore: () => ({ recordMusicSuccess: mocks.recordMusicSuccess }),
+}));
 vi.mock("@/stores/history", () => ({ useHistoryStore: () => ({ record: vi.fn() }) }));
 vi.mock("@/stores/library", () => ({ useLibraryStore: vi.fn() }));
 vi.mock("@/stores/queue", () => ({
@@ -108,7 +113,7 @@ vi.mock("@/services/nextTrackPreloader", () => ({
   scheduleNextTrackPreload: vi.fn(),
 }));
 vi.mock("@/composables/useFavorite", () => ({ useFavorite: vi.fn() }));
-vi.mock("@/composables/useToast", () => ({ toast: { info: vi.fn() } }));
+vi.mock("@/composables/useToast", () => ({ toast: { info: vi.fn(), warning: mocks.warning } }));
 vi.mock("@/utils/color", () => ({ extractColorFromUrl: vi.fn() }));
 vi.mock("@/utils/errors", () => ({
   handleError: vi.fn(),
@@ -375,6 +380,35 @@ describe("交叉过渡的队列交接", () => {
     expect(mocks.load).not.toHaveBeenCalled();
     expect(mocks.stop).not.toHaveBeenCalled();
     expect(mocks.onTrackEnded).toHaveBeenCalledWith(false);
+  });
+
+  it("交叉过渡采用后台选好的插件缓存时只统计一次并保留降级提示", async () => {
+    const quality = {
+      codec: "flac",
+      sampleRate: 44100,
+      bitsPerSample: 16,
+      channels: 6,
+      bitRate: 2595000,
+    };
+    mocks.peek.mockReturnValue({
+      preparedId: "next-slot",
+      source: {
+        source: "C:/cache/next.bin",
+        provider: "cache",
+        fromCache: true,
+        pluginId: "best",
+        verifiedQuality: quality,
+      },
+    });
+    mocks.transition.mockResolvedValue({
+      success: true,
+      data: { detail: { quality }, mediaInfo: { duration: 1000 } },
+    });
+    const { trySmartTransition } = await import("./index");
+    await trySmartTransition(5000);
+    expect(mocks.load).not.toHaveBeenCalled();
+    expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("best");
+    expect(mocks.warning).toHaveBeenCalledExactlyOnceWith("player.qualityFallback");
   });
 
   it.each([true, false])(

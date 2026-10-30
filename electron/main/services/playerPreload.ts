@@ -131,9 +131,9 @@ export const cancelPreparedTrack = (id = prepared?.id): void => {
 onPlayerReset(cancelPreparedTrack);
 
 /**
- * 将本地或缓存完成的音源交给原生备用槽位解码
+ * 将本地或渐进缓存音源交给原生备用槽位解码
  * @param id - 用于取消和消费预载资源的任务标识
- * @param source - 本地音频文件或已完成下载的缓存文件路径
+ * @param source - 本地文件路径或渐进缓存音源标识
  * @param startMs - 预载起点，单位为毫秒，CUE 子曲目使用对应的起始位置
  * @param preference - 交接偏好，省略时不分析曲尾
  * @param options - 过渡模式和下一曲的有效结束范围
@@ -163,6 +163,8 @@ export const prepareNextTrack = async (
     if (
       options?.mode === "automix" &&
       range?.source &&
+      !source.startsWith("cache-stream://") &&
+      !range.source.startsWith("cache-stream://") &&
       canAutoMix(player.getSpeed(), player.getPitch())
     ) {
       const tracks = [
