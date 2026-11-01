@@ -1,8 +1,9 @@
+import { callPlatformApi } from "@/apis/transport";
 /**
  * KG API 渲染端
  *
  * 用 Proxy 代理所有接口到主进程：`kugou.search({keywords})` 等于
- * `window.api.apis.call("kugou", "search", {keywords})`。
+ * `callPlatformApi("kugou", "search", {keywords})`。
  *
  * 调用约定：成功 → 返回 data；失败 → 抛 Error。
  */
@@ -18,7 +19,7 @@ export const kugouCall = async <T = unknown>(
   name: string,
   params?: Record<string, unknown>,
 ): Promise<T> => {
-  const res: ApiCallResponse = await window.api.apis.call("kugou", name, params);
+  const res: ApiCallResponse = await callPlatformApi("kugou", name, params);
   if (!res.ok) throw new Error(res.error);
   return res.data as T;
 };

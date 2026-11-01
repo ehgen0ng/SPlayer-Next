@@ -837,6 +837,8 @@ export const registerPlayerIpc = (): void => {
           bitsPerSample: meta.bitsPerSample,
           bitRate: meta.bitRate,
           codec: meta.codec,
+          artist: meta.artist,
+          duration: toMs(meta.duration),
         },
       };
     } catch {

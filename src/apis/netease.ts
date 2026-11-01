@@ -1,8 +1,9 @@
+import { callPlatformApi } from "@/apis/transport";
 /**
  * Netease API 渲染端
  *
  * 用 Proxy 把所有接口代理到主进程：`netease.search({keywords})` 实际等于
- * `window.api.apis.call("netease", "search", {keywords})`
+ * `callPlatformApi("netease", "search", {keywords})`
  *
  * 调用约定：成功 → 返回 body；失败 → 抛 Error
  * 想取原始响应（含 HTTP status）用 `neteaseRaw`
@@ -43,7 +44,7 @@ export const neteaseRaw = async (
   params?: Record<string, unknown>,
   options?: NeteaseCallOptions,
 ): Promise<{ status: number; body: unknown }> => {
-  const res: ApiCallResponse = await window.api.apis.call("netease", name, params);
+  const res: ApiCallResponse = await callPlatformApi("netease", name, params);
   const authFailure = isExplicitNeteaseAuthFailure({ status: res.status, body: res.body });
   if (!res.ok || authFailure) {
     const error = new NeteaseApiError(

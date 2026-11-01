@@ -1,0 +1,1 @@
+export { ipcMain } from "electron";

@@ -1,3 +1,4 @@
+import { isAndroid } from "@/platform";
 import type {
   PlayerSettings,
   LyricSettings,
@@ -155,6 +156,8 @@ export const useSettingsStore = defineStore(
       reverseSpectrum: false,
       songLevel: "hi-res",
       preferPluginSource: true,
+      verifySourceArtist: false,
+      verifySourceDuration: true,
       allowTrialPlay: false,
       timeFormat: "current-total",
       showProgressTooltip: true,
@@ -283,28 +286,30 @@ export const useSettingsStore = defineStore(
     };
 
     /** IPC 订阅取消回调集合 */
-    const unsubscribers: Array<() => void> = [
-      // 订阅桌面歌词配置变化：歌词窗口点锁定按钮等场景需要回流到主窗口设置页
-      window.api.desktopLyric.onConfigChange((next) => {
-        Object.assign(system.desktopLyric, next as object);
-      }),
-      // 订阅桌面歌词窗口开关状态
-      window.api.window.onDesktopLyricVisibilityChange((open) => {
-        isDesktopLyricOpen.value = open;
-      }),
-      // 订阅灵动岛配置变化
-      window.api.dynamicIsland.onConfigChange((next) => {
-        Object.assign(system.dynamicIsland, next as object);
-      }),
-      // 订阅灵动岛窗口开关状态
-      window.api.window.onDynamicIslandVisibilityChange((open) => {
-        isDynamicIslandOpen.value = open;
-      }),
-      // 订阅任务栏歌词窗口开关状态
-      window.api.window.onTaskbarLyricVisibilityChange((open) => {
-        isTaskbarLyricOpen.value = open;
-      }),
-    ];
+    const unsubscribers: Array<() => void> = isAndroid
+      ? []
+      : [
+          // 订阅桌面歌词配置变化：歌词窗口点锁定按钮等场景需要回流到主窗口设置页
+          window.api.desktopLyric.onConfigChange((next) => {
+            Object.assign(system.desktopLyric, next as object);
+          }),
+          // 订阅桌面歌词窗口开关状态
+          window.api.window.onDesktopLyricVisibilityChange((open) => {
+            isDesktopLyricOpen.value = open;
+          }),
+          // 订阅灵动岛配置变化
+          window.api.dynamicIsland.onConfigChange((next) => {
+            Object.assign(system.dynamicIsland, next as object);
+          }),
+          // 订阅灵动岛窗口开关状态
+          window.api.window.onDynamicIslandVisibilityChange((open) => {
+            isDynamicIslandOpen.value = open;
+          }),
+          // 订阅任务栏歌词窗口开关状态
+          window.api.window.onTaskbarLyricVisibilityChange((open) => {
+            isTaskbarLyricOpen.value = open;
+          }),
+        ];
 
     onScopeDispose(() => {
       for (const off of unsubscribers) off();
@@ -312,28 +317,30 @@ export const useSettingsStore = defineStore(
     });
 
     // 拉取窗口初始开关状态
-    window.api.window
-      .isDesktopLyricOpen()
-      .then((open) => {
-        isDesktopLyricOpen.value = open;
-      })
-      .catch(() => {});
-    window.api.window
-      .isDynamicIslandOpen()
-      .then((open) => {
-        isDynamicIslandOpen.value = open;
-      })
-      .catch(() => {});
-    window.api.window
-      .isTaskbarLyricOpen()
-      .then((open) => {
-        isTaskbarLyricOpen.value = open;
-      })
-      .catch(() => {});
-
+    if (!isAndroid) {
+      window.api.window
+        .isDesktopLyricOpen()
+        .then((open) => {
+          isDesktopLyricOpen.value = open;
+        })
+        .catch(() => {});
+      window.api.window
+        .isDynamicIslandOpen()
+        .then((open) => {
+          isDynamicIslandOpen.value = open;
+        })
+        .catch(() => {});
+      window.api.window
+        .isTaskbarLyricOpen()
+        .then((open) => {
+          isTaskbarLyricOpen.value = open;
+        })
+        .catch(() => {});
+    }
     /**
      * 写入后端配置并同步本地
-     * 先就地 mutate 叶子保证 UI 即时反馈，IPC 落盘异步执行
+     * @param keyPath - 后端配置路径
+     * @param value - 新设置值
      */
     const setSystem = async (keyPath: string, value: unknown): Promise<void> => {
       setByPath(system, keyPath, value);
@@ -396,6 +403,8 @@ export const useSettingsStore = defineStore(
         }
         if (typeof player.automixCrossfadeFallback !== "boolean")
           player.automixCrossfadeFallback = true;
+        if (typeof player.verifySourceArtist !== "boolean") player.verifySourceArtist = false;
+        if (typeof player.verifySourceDuration !== "boolean") player.verifySourceDuration = true;
         if (typeof lyric.detectBackgroundLyrics !== "boolean") {
           lyric.detectBackgroundLyrics = true;
         }

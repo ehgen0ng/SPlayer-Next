@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, shell } from "electron";
-import { join } from "path";
+import { join } from "node:path";
 import { is } from "@electron-toolkit/utils";
 import { createWindow } from "./create";
 import { initThumbar } from "@main/services/thumbar";

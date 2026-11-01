@@ -200,3 +200,27 @@ test("发布工作流将 Fork 和无后缀正式版创建为草稿，Alpha 和 B
 test("拒绝未支持的预发布通道", () => {
   assert.throws(() => resolveChannel("1.3.0-rc.1"), /不支持的预发布版本格式/);
 });
+
+test("安卓 APK 随桌面资源归集且不进入桌面自动更新清单", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "splayer-release-android-"));
+  try {
+    const src = path.join(root, "artifacts");
+    const out = path.join(root, "out");
+    const name = "SPlayer-Next-1.2.1-fork.2-android-arm64-v8a-release.apk";
+    createFixture(src, "1.2.1-fork.2", "latest");
+    createArtifact(path.join(src, "android"), name, Buffer.from("signed-apk"));
+    prepareReleaseAssets(src, out, "1.2.1-fork.2");
+    assert.equal(fs.readFileSync(path.join(out, name), "utf8"), "signed-apk");
+    for (const file of fs.readdirSync(out).filter((file) => file.endsWith(".yml"))) {
+      const manifest = yaml.load(fs.readFileSync(path.join(out, file), "utf8"));
+      assert.ok(manifest.files.every((asset) => !asset.url.endsWith(".apk")));
+    }
+    const workflow = yaml.load(
+      fs.readFileSync(path.join(__dirname, "../workflows/release.yml"), "utf8"),
+    );
+    assert.ok(workflow.jobs.release.needs.includes("android"));
+    assert.equal(workflow.jobs.android.with.release, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

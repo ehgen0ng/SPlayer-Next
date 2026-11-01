@@ -2,6 +2,7 @@
 import type { DropdownMenuItem } from "@/components/ui/SDropdownMenu.vue";
 import { useStatusStore } from "@/stores/status";
 import { useSettingsStore } from "@/stores/settings";
+import { isAndroid } from "@/platform";
 import * as player from "@/core/player";
 import { VOLUME_STEP, volumeGainToPosition, volumePositionToGain } from "@/utils/volume";
 import IconLucideSliders from "~icons/lucide/sliders-horizontal";
@@ -62,13 +63,15 @@ const autoCloseOpen = ref(false);
 const abLoopOpen = ref(false);
 const fmModeOpen = ref(false);
 
-const moreMenuItems = computed<DropdownMenuItem[]>(() => [
-  { key: "audioInfo", label: t("quality.outputInfo"), icon: IconLucideAudioWaveform },
-  { key: "equalizer", label: t("equalizer.title"), icon: IconLucideSliders },
-  { key: "speed", label: t("speed.title"), icon: IconLucideGauge },
-  { key: "abLoop", label: t("abLoop.title"), icon: IconLucideRepeat2 },
-  { key: "autoClose", label: t("autoClose.title"), icon: IconLucideClock },
-]);
+const moreMenuItems = computed<DropdownMenuItem[]>(() =>
+  [
+    { key: "audioInfo", label: t("quality.outputInfo"), icon: IconLucideAudioWaveform },
+    { key: "equalizer", label: t("equalizer.title"), icon: IconLucideSliders },
+    { key: "speed", label: t("speed.title"), icon: IconLucideGauge },
+    { key: "abLoop", label: t("abLoop.title"), icon: IconLucideRepeat2 },
+    { key: "autoClose", label: t("autoClose.title"), icon: IconLucideClock },
+  ].filter((item) => !isAndroid || item.key === "audioInfo" || item.key === "speed"),
+);
 
 const onMoreMenuSelect = (key: string): void => {
   if (key === "audioInfo") status.audioInfoOpen = true;
@@ -123,6 +126,7 @@ const onMoreMenuSelect = (key: string): void => {
       </SPopover>
     </div>
     <SButton
+      v-if="!isAndroid"
       :type="lyricButtonType"
       :variant="isDesktopLyricOpen ? 'tertiary' : 'ghost'"
       circle
@@ -193,10 +197,10 @@ const onMoreMenuSelect = (key: string): void => {
         </SButton>
       </template>
     </SDropdownMenu>
-    <EqualizerDialog v-model:open="equalizerOpen" />
+    <EqualizerDialog v-if="!isAndroid" v-model:open="equalizerOpen" />
     <SpeedDialog v-model:open="speedOpen" />
-    <AbLoopDialog v-model:open="abLoopOpen" />
-    <AutoCloseDialog v-model:open="autoCloseOpen" />
+    <AbLoopDialog v-if="!isAndroid" v-model:open="abLoopOpen" />
+    <AutoCloseDialog v-if="!isAndroid" v-model:open="autoCloseOpen" />
     <FmModeDialog v-model:open="fmModeOpen" />
   </div>
 </template>

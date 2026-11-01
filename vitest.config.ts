@@ -34,6 +34,7 @@ export default defineConfig({
     environment: "happy-dom",
     include: [
       "electron/**/*.spec.ts",
+      "android/node/**/*.spec.ts",
       "src/**/*.spec.ts",
       "windows/**/*.spec.ts",
       "docs/**/*.spec.ts",

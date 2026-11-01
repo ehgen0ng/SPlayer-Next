@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAndroid } from "@/platform";
 import { useStatusStore } from "@/stores/status";
 import { useMediaStore } from "@/stores/media";
 import { useSettingsStore } from "@/stores/settings";
@@ -220,6 +221,7 @@ const { isFullscreen, toggleFullscreen } = useWindowControls();
 
 const canDownload = computed(
   () =>
+    !isAndroid &&
     !!displayTrack.value &&
     displayTrack.value.source !== "local" &&
     displayTrack.value.source !== "plugin" &&
@@ -336,7 +338,7 @@ const showComments = (): void => {
                 <IconLucideMaximize v-else />
               </template>
             </SButton>
-            <WindowControls cover />
+            <WindowControls v-if="!isAndroid" cover />
           </div>
         </div>
         <!-- 主区域 -->

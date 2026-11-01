@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAndroid } from "@/platform";
 import { useStatusStore } from "@/stores/status";
 import { useMediaStore } from "@/stores/media";
 import { useSettingsStore } from "@/stores/settings";
@@ -19,8 +20,10 @@ const settings = useSettingsStore();
 const { sidebarCollapsed } = useResponsiveLayout();
 
 // 接入 orpheus 协议唤起与外部音频文件播放
-useOrpheusProtocol();
-useExternalFileHandler();
+if (!isAndroid) {
+  useOrpheusProtocol();
+  useExternalFileHandler();
+}
 
 /** 有歌曲信息时显示播放栏 */
 const showPlayerBar = computed(() => !!useMediaStore().track);
@@ -220,7 +223,7 @@ const playerBarInnerClass = computed(() => {
   <!-- 全局设置 -->
   <SettingsDialog />
   <!-- 更新弹窗 -->
-  <UpdateDialog />
+  <UpdateDialog v-if="!isAndroid" />
   <!-- 评论弹窗 -->
   <MusicCommentsDialog />
   <!-- 输出信息弹窗 -->

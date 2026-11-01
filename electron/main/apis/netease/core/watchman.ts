@@ -1,4 +1,4 @@
-import type { Session, WebContents } from "electron";
+import type { WebClientSession, WebClientSurface } from "@main/runtime/webClient";
 import { installWatchmanRuntime } from "./watchmanRuntime";
 
 export const WATCHMAN_WORLD_ID = 1007;
@@ -6,8 +6,8 @@ const POLICY_CACHE_TTL_MS = 5 * 60_000;
 const TOOL_URL = "https://acstatic-dun.126.net/tool.min.js";
 
 interface WatchmanRequest {
-  contents: WebContents;
-  session: Session;
+  contents: WebClientSurface;
+  session: WebClientSession;
   productNumber: string;
   businessId: string;
   signal: AbortSignal;
@@ -87,7 +87,7 @@ let sourceCache: { url: string; tool: string; sdk: string } | null = null;
  * @param contents - 承载凭据 SDK 的主窗口内容
  * @returns 清理脚本的执行结果，窗口已退出时直接结束
  */
-export const resetWatchman = async (contents: WebContents | null): Promise<void> => {
+export const resetWatchman = async (contents: WebClientSurface | null): Promise<void> => {
   policyCache = null;
   configCache = null;
   if (!contents || contents.isDestroyed()) return;

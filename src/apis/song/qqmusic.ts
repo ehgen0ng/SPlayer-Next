@@ -24,6 +24,7 @@ interface SongUrlResponse {
  * 解析 QM 单曲的播放 URL
  * @param track - 待解析的 Track（track.id 为 songmid）
  * @param songLevel - 音质偏好
+ * @returns 播放地址及由官方试听文件标记识别的试听状态
  */
 export const resolveQQMusicUrl = async (
   track: Track,
@@ -38,10 +39,12 @@ export const resolveQQMusicUrl = async (
 
     const item = body?.data?.[0];
     if (item?.url) {
+      // QQ 官方播放器使用 RS02 文件请求试听片段，时长和付费状态不能代替此标记
+      const isTrial = /^RS02[^/]+\.mp3$/i.test(new URL(item.url).pathname.split("/").at(-1)!);
       return {
         available: true,
         url: item.url,
-        isTrial: false,
+        isTrial,
       };
     }
 

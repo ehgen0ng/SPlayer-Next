@@ -14,6 +14,7 @@ import { initPlayer, playFiles, restoreLastTrack } from "./core/player";
 import { handleOrpheus } from "./services/orpheus";
 import { installHotkeyManager } from "./core/hotkey/manager";
 import { vRipple } from "./directives/ripple";
+import { isAndroid } from "./platform";
 
 const pinia = createPinia();
 pinia.use(piniaPersistedstate);
@@ -64,6 +65,7 @@ export const mountApplication = async (): Promise<void> => {
 /** 启动层退出后恢复播放和快捷键 */
 export const startApplication = (): void => {
   void useUserStore().fetchStatus();
+  if (isAndroid) return;
   void bootstrapPlayback().catch(console.error);
   useHotkeyStore()
     .init()

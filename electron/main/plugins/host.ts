@@ -19,7 +19,7 @@ import { playerControl } from "@main/services/playerControl";
 import { z } from "zod/v4";
 import { searchOnline, searchLibrary, trackSchema } from "@main/services/music";
 import { callPlatformApi } from "@main/services/platformApi";
-import { Notification } from "electron";
+import { showPluginNotification } from "@main/runtime/notification";
 import * as nowPlaying from "@main/services/nowPlaying";
 import type { OnlineSearchOptions, PlaybackQueueOptions } from "@shared/types/music";
 
@@ -210,8 +210,7 @@ export const dispatchHostCall = async (
       }
       case "notify": {
         const message = z.string().trim().min(1).max(1000).parse(args[0]);
-        if (!Notification.isSupported()) throw new Error("System notifications are unavailable");
-        new Notification({ title: pluginName, body: message }).show();
+        await showPluginNotification(pluginName, message);
         break;
       }
       default:

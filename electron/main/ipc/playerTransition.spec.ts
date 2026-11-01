@@ -191,10 +191,20 @@ describe("交接响应的主进程竞态保护", () => {
       bitsPerSample: 16,
       bitRate: 2595000,
       codec: "flac",
+      artist: "莫文蔚",
+      duration: 300,
     });
     expect(await invoke("player:probeSource", "https://music.example/file.flac")).toEqual({
       success: true,
-      data: { sampleRate: 44100, channels: 6, bitsPerSample: 16, bitRate: 2595000, codec: "flac" },
+      data: {
+        sampleRate: 44100,
+        channels: 6,
+        bitsPerSample: 16,
+        bitRate: 2595000,
+        codec: "flac",
+        artist: "莫文蔚",
+        duration: 300000,
+      },
     });
     expect(mocks.load).not.toHaveBeenCalled();
     expect(mocks.stop).not.toHaveBeenCalled();

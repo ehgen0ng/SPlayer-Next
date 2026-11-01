@@ -2,6 +2,7 @@ import { useUserStore } from "@/stores/user";
 import { useHeartMode } from "@/composables/useHeartMode";
 import { useFmMode } from "@/composables/useFmMode";
 import { toast } from "@/composables/useToast";
+import { isAndroid } from "@/platform";
 import * as player from "@/core/player";
 import IconDices from "~icons/lucide/dices";
 import IconCalendarDays from "~icons/lucide/calendar-days";
@@ -21,8 +22,8 @@ export const useQuickActions = () => {
   /** 试试手气 */
   const playLucky = useThrottleFn(async (): Promise<void> => {
     const online = user.likedPlaylistTracks;
-    const countRes = await window.api.library.getTrackCount();
-    const hasLocal = (countRes.success ? (countRes.data ?? 0) : 0) > 0;
+    const countRes = isAndroid ? null : await window.api.library.getTrackCount();
+    const hasLocal = (countRes?.success ? (countRes.data ?? 0) : 0) > 0;
     const hasOnline = online.length > 0;
     if (!hasLocal && !hasOnline) {
       toast.warning(t("home.quickActions.luck.empty"));

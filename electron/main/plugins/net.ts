@@ -5,7 +5,7 @@
  * 主进程用 Electron `net.fetch`（支持系统代理）去请求，应用超时与 URL 白名单。
  */
 
-import { net } from "electron";
+import { fetchNetwork } from "@main/runtime/network";
 import type { HostRequestOptions, HostRequestResult, MarketPlugin } from "@shared/types/plugin";
 import {
   REQUEST_DEFAULT_TIMEOUT,
@@ -29,7 +29,7 @@ export const fetchScript = async (url: string): Promise<string> => {
   if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLoopback)) {
     throw new Error(`protocol not allowed: ${parsed.protocol}`);
   }
-  const resp = await net.fetch(url, {
+  const resp = await fetchNetwork(url, {
     method: "GET",
     redirect: "follow",
     signal: AbortSignal.timeout(INSTALL_URL_TIMEOUT),
@@ -52,7 +52,7 @@ export const fetchScript = async (url: string): Promise<string> => {
  * @returns 可安装的插件列表
  */
 export const fetchMarket = async (): Promise<MarketPlugin[]> => {
-  const resp = await net.fetch(PLUGIN_REGISTRY_URL, {
+  const resp = await fetchNetwork(PLUGIN_REGISTRY_URL, {
     method: "GET",
     redirect: "follow",
     signal: AbortSignal.timeout(INSTALL_URL_TIMEOUT),
@@ -120,15 +120,13 @@ export const hostRequest = async (
   }
 
   try {
-    const resp = await net.fetch(url, {
+    const resp = await fetchNetwork(url, {
       method: opts.method ?? "GET",
       headers: opts.headers ?? {},
       // 只使用插件显式提供的 Cookie，避免被应用会话覆盖。
       credentials: "omit",
       body,
       signal: ctrl.signal,
-      // 让 Electron 遵循系统代理
-      bypassCustomProtocolHandlers: true,
     });
 
     const headers: Record<string, string> = {};

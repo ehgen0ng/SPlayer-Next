@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAndroid } from "@/platform";
 import { useDataStore } from "@/stores/data";
 import { useStatusStore } from "@/stores/status";
 import { getHotSearches, type HotSearchItem } from "@/apis/search/hot";
@@ -306,6 +307,7 @@ onMounted(() => {
       </span>
     </div>
     <SButton
+      v-if="!isAndroid"
       class="app-no-drag shrink-0"
       variant="tertiary"
       circle
@@ -317,7 +319,7 @@ onMounted(() => {
     </SButton>
   </div>
   <!-- 听歌识曲 -->
-  <RecognitionDialog v-model:open="recognitionOpen" />
+  <RecognitionDialog v-if="!isAndroid" v-model:open="recognitionOpen" />
   <!-- 搜索 -->
   <SDialog
     v-model:open="dialogOpen"

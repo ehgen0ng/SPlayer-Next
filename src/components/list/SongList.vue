@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAndroid } from "@/platform";
 import type { Artist, PlaybackContext, Track, TrackSource } from "@shared/types/player";
 import { isPlatform, PLATFORM_SHORT_NAME } from "@shared/types/platform";
 import type { CollectionType } from "@/types/collection";
@@ -528,7 +529,12 @@ defineExpose({
                 <span>{{ t("songList.batch.addToQueue") }}</span>
               </SButton>
               <SButton
-                v-if="source !== 'local' && source !== 'plugin' && settings.system.download.enabled"
+                v-if="
+                  !isAndroid &&
+                  source !== 'local' &&
+                  source !== 'plugin' &&
+                  settings.system.download.enabled
+                "
                 variant="ghost"
                 size="small"
                 :disabled="batch.selectedCount.value === 0"

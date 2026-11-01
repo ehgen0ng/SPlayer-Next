@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAndroid } from "@/platform";
 import { useSettingsDialog } from "@/settings/useSettingsDialog";
 import { useWindowControls } from "@/composables/useWindowControls";
 import { useThemeStore } from "@/stores/theme";
@@ -41,9 +42,9 @@ const menuItems = computed<DropdownMenuItem[]>(() => [
     icon: themeIcon.value,
     disabled: theme.appearanceStyle === "image",
   },
-  { key: "uiZoom", label: t("uiZoom.title"), icon: IconScaling },
+  { key: "uiZoom", label: t("uiZoom.title"), icon: IconScaling, show: !isAndroid },
   { key: "reload", label: t("nav.reload"), icon: IconRefreshCw, separator: true },
-  { key: "devtools", label: t("nav.devtools"), icon: IconTerminal },
+  { key: "devtools", label: t("nav.devtools"), icon: IconTerminal, show: !isAndroid },
   { key: "settings", label: t("nav.globalSettings"), icon: IconSettings },
 ]);
 
@@ -99,7 +100,18 @@ const onMenuSelect = (key: string): void => {
     <!-- 右侧 -->
     <div class="flex items-center gap-2 sm:gap-3 shrink-0">
       <NavUser />
-      <SDropdownMenu :items="menuItems" @select="onMenuSelect">
+      <SButton
+        v-if="isAndroid"
+        class="app-no-drag shrink-0"
+        variant="tertiary"
+        circle
+        :size="40"
+        :title="t('nav.globalSettings')"
+        @click="showSettings()"
+      >
+        <template #icon><IconLucideSettings /></template>
+      </SButton>
+      <SDropdownMenu v-else :items="menuItems" @select="onMenuSelect">
         <template #trigger>
           <SButton class="app-no-drag shrink-0" variant="tertiary" circle :size="40">
             <template #icon><IconLucideSettings /></template>
@@ -107,8 +119,8 @@ const onMenuSelect = (key: string): void => {
         </template>
       </SDropdownMenu>
       <SDivider v-if="isBorderless" vertical />
-      <WindowControls />
+      <WindowControls v-if="!isAndroid" />
     </div>
-    <UiZoomDialog v-model:open="uiZoomOpen" />
+    <UiZoomDialog v-if="!isAndroid" v-model:open="uiZoomOpen" />
   </div>
 </template>

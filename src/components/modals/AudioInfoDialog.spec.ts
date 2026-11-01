@@ -7,6 +7,7 @@ import AudioInfoDialog from "./AudioInfoDialog.vue";
 import messages from "@/i18n/locales/zh-CN.json";
 
 const mocks = vi.hoisted(() => ({
+  isAndroid: false,
   getStreamInfo: vi.fn(),
   getSourceSize: vi.fn(),
   status: {
@@ -18,6 +19,12 @@ const mocks = vi.hoisted(() => ({
     speed: 1,
   },
   media: { track: null as Track | null, detail: null as TrackDetail | null },
+}));
+vi.mock("@/platform", () => ({
+  /** 按测试场景提供构建平台 */
+  get isAndroid() {
+    return mocks.isAndroid;
+  },
 }));
 vi.mock("@/stores/media", () => ({ useMediaStore: () => mocks.media }));
 vi.mock("@/stores/status", () => ({ useStatusStore: () => mocks.status }));
@@ -42,6 +49,7 @@ const mountDialog = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.isAndroid = false;
   mocks.status = reactive({
     ...mocks.status,
     audioInfoOpen: false,
@@ -85,6 +93,71 @@ beforeEach(() => {
 });
 
 describe("音源文件信息", () => {
+  it("安卓区分应用输出流与系统未知格式，不展示播放速度及音频处理分组", async () => {
+    mocks.isAndroid = true;
+    mocks.status.audioInfoOpen = true;
+    mocks.getStreamInfo.mockResolvedValue({
+      success: true,
+      data: {
+        outputSampleRate: 48000,
+        outputBits: 16,
+        outputChannels: 2,
+        deviceName: "",
+        isExclusive: false,
+        isResampling: null,
+      },
+    });
+    const wrapper = mountDialog();
+    await flushPromises();
+    expect(wrapper.find(".grid-cols-4").text()).toContain("48.0 kHz");
+    const sections = wrapper.findAll("section");
+    expect(sections[0]!.text()).toContain("44.1 kHz");
+    expect(sections[1]!.text()).toContain("未知");
+    expect(sections[1]!.text()).toContain("由 Android 系统管理");
+    expect(sections).toHaveLength(2);
+    expect(wrapper.text()).not.toContain("播放速度");
+    expect(wrapper.text()).not.toContain("音频处理");
+    wrapper.unmount();
+  });
+
+  it("安卓没有输出流时不拿歌曲参数代替输出参数", async () => {
+    mocks.isAndroid = true;
+    mocks.status.audioInfoOpen = true;
+    mocks.getStreamInfo.mockResolvedValue({ success: true });
+    const wrapper = mountDialog();
+    await flushPromises();
+    const cards = wrapper.find(".grid-cols-4").text();
+    expect(cards).not.toContain("44.1 kHz");
+    expect(cards).not.toContain("16 bit");
+    expect(cards).not.toContain("多声道");
+    expect(wrapper.findAll("section")[0]!.text()).toContain("44.1 kHz");
+    wrapper.unmount();
+  });
+
+  it("换源后忽略旧输出流查询的迟到结果", async () => {
+    let finish!: (value: unknown) => void;
+    mocks.getStreamInfo.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    mocks.status.audioInfoOpen = true;
+    const wrapper = mountDialog();
+    await flushPromises();
+    mocks.getStreamInfo.mockResolvedValue({
+      success: true,
+      data: { outputSampleRate: 48000, outputBits: 16, outputChannels: 2 },
+    });
+    mocks.status.currentSource = "https://music.example/next.flac";
+    await flushPromises();
+    finish({ success: true, data: { outputSampleRate: 96000, outputBits: 24, outputChannels: 2 } });
+    await flushPromises();
+    expect(wrapper.find(".grid-cols-4").text()).toContain("48.0 kHz");
+    expect(wrapper.find(".grid-cols-4").text()).not.toContain("96.0 kHz");
+    wrapper.unmount();
+  });
+
   it("仅打开时查询实际大小，并区分原始文件与输出位深", async () => {
     const wrapper = mountDialog();
     expect(mocks.getSourceSize).not.toHaveBeenCalled();

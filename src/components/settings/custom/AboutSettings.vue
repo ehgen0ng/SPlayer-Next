@@ -4,6 +4,7 @@ import { useCopyText } from "@/composables/useCopyText";
 import { updateSection } from "@/settings/sections/update";
 import { useUpdateStore } from "@/stores/update";
 import { openExternal } from "@/utils/url";
+import { isAndroid } from "@/platform";
 import {
   APP_VERSION,
   REPO_URL,
@@ -38,7 +39,7 @@ const update = useUpdateStore();
 /** 提交时间 */
 const commitTimeAgo = useTimeAgo(new Date(COMMIT_DATE));
 /** 当前版本 */
-const versions = window.electron.process.versions;
+const versions = isAndroid ? {} : window.electron.process.versions;
 /** 操作系统信息 */
 const osInfo = window.api.system.osInfo;
 
@@ -65,10 +66,14 @@ const envItems = computed<EnvItem[]>(() => [
     label: t("settings.about.date"),
     value: `${COMMIT_DATE} (${commitTimeAgo.value})`,
   },
-  { label: "Electron", value: versions.electron },
-  { label: "Chromium", value: versions.chrome },
-  { label: "Node.js", value: versions.node },
-  { label: "V8", value: versions.v8 },
+  ...(!isAndroid
+    ? [
+        { label: "Electron", value: versions.electron },
+        { label: "Chromium", value: versions.chrome },
+        { label: "Node.js", value: versions.node },
+        { label: "V8", value: versions.v8 },
+      ]
+    : []),
   { label: "OS", value: `${osInfo.type} ${osInfo.arch} ${osInfo.release}` },
 ]);
 
@@ -148,7 +153,7 @@ onMounted(async () => {
             {{ t("settings.storeVersion") }}
           </STag>
         </div>
-        <div class="flex items-center gap-2">
+        <div v-if="!isAndroid" class="flex items-center gap-2">
           <SButton
             variant="secondary"
             :loading="checking"
@@ -173,6 +178,7 @@ onMounted(async () => {
       </SCard>
     </section>
     <SettingsSection
+      v-if="!isAndroid"
       class="!mb-0"
       :section="updateSection"
       :highlight-key="highlightKey"

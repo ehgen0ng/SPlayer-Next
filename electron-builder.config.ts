@@ -108,8 +108,6 @@ const config: Configuration = {
       to: "native",
       filter: ["*.node"],
     },
-  ],
-  extraFiles: [
     {
       from: "LICENSE",
       to: "LICENSE",
@@ -148,7 +146,8 @@ const config: Configuration = {
     executableName: "SPlayer-Next",
     icon: "public/icons/icon.icns",
     artifactName: "${productName}-${version}-${arch}.${ext}",
-    identity: null,
+    // 生成完整的应用包临时签名，签名后由打包工具严格校验
+    identity: "-",
     hardenedRuntime: false,
     notarize: false,
     darkModeSupport: true,

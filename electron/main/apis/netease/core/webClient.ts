@@ -1,5 +1,11 @@
-import { app, session, type Session, type WebContents } from "electron";
-import { getMainWindow } from "@main/window/main";
+import {
+  createWebClientSession,
+  getWebClientSurface,
+  onWebClientQuit,
+  webClientReady,
+  type WebClientSession,
+  type WebClientSurface,
+} from "@main/runtime/webClient";
 import { getNetworkProxyUrl } from "@main/utils/proxy";
 import { neteaseLog } from "@main/utils/logger";
 import { DOMAIN, UA_MAP, WEB_LOG_DOMAIN } from "./config";
@@ -13,12 +19,12 @@ const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_PENDING_REQUESTS = 16;
 
 interface ActiveRequest {
-  contents: WebContents | null;
+  contents: WebClientSurface | null;
   cancel: (error: Error) => void;
   alive: boolean;
 }
 
-let webSession: Session | null = null;
+let webSession: WebClientSession | null = null;
 let sessionDirty = true;
 let generation = 0;
 let pendingRequests = 0;
@@ -31,7 +37,7 @@ export const resetWebClientSession = (): void => {
   generation++;
   sessionDirty = true;
   activeRequest?.cancel(new Error("平台会话已变更，请求已取消"));
-  void resetWatchman(getMainWindow()?.webContents ?? null).catch(() => {});
+  void resetWatchman(getWebClientSurface()).catch(() => {});
   if (webSession) {
     const ses = webSession;
     const resetGeneration = generation;
@@ -45,7 +51,7 @@ export const resetWebClientSession = (): void => {
   }
 };
 
-app.once("before-quit", () => {
+onWebClientQuit(() => {
   quitting = true;
   resetWebClientSession();
 });
@@ -113,7 +119,7 @@ export const requestWithWebClient = (
      * @param isMainFrame - 是否为主文档
      */
     const onNavigation = (
-      _event: Electron.Event,
+      _event: unknown,
       _url: string,
       inPlace: boolean,
       isMainFrame: boolean,
@@ -126,9 +132,9 @@ export const requestWithWebClient = (
      * @returns 服务端原始业务结果
      */
     const run = async (): Promise<RequestResponse> => {
-      await Promise.race([app.whenReady(), canceled]);
+      await Promise.race([webClientReady(), canceled]);
       ensureCurrent();
-      webSession ??= session.fromPartition("netease-web-api", { cache: false });
+      webSession ??= createWebClientSession();
       const ses = webSession;
       if (sessionDirty) {
         await ses.clearStorageData();
@@ -152,7 +158,7 @@ export const requestWithWebClient = (
         await ses.cookies.set({ url: DOMAIN, name, value, path: "/", secure: true });
         ensureCurrent();
       }
-      const mainContents = getMainWindow()?.webContents;
+      const mainContents = getWebClientSurface();
       const userAgent =
         mainContents && !mainContents.isDestroyed() ? mainContents.getUserAgent() : UA_MAP.weapi.pc;
 

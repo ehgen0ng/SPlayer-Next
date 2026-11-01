@@ -29,6 +29,75 @@ const getGitDate = (): string => {
   }
 };
 
+export const rendererConfig: import("vite").UserConfig = {
+  root: ".",
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_REPO_URL__: JSON.stringify(pkg.repository.url),
+    __APP_REPO_NAME__: JSON.stringify(pkg.productName),
+    __APP_AUTHOR__: JSON.stringify(pkg.author.name),
+    __APP_HOMEPAGE__: JSON.stringify(pkg.homepage),
+    __APP_AUTHOR_URL__: JSON.stringify(pkg.author.url),
+    __COMMIT_HASH__: JSON.stringify(getGitCommit()),
+    __COMMIT_DATE__: JSON.stringify(getGitDate()),
+  },
+  server: {
+    port: 14558,
+    watch: {
+      // Rust workspace 在根目录生成 target，避免监听大量构建产物
+      ignored: ["**/target/**"],
+    },
+  },
+  optimizeDeps: {
+    // 自动注册的组件不在 HTML 的静态导入图中，需扫描其惰性加载依赖
+    entries: ["index.html", "windows/**/index.html", "src/components/**/*.vue"],
+    include: ["reka-ui"],
+  },
+  publicDir: resolve(__dirname, "public"),
+  build: {
+    rolldownOptions: {
+      input: {
+        index: resolve(__dirname, "index.html"),
+        "desktop-lyric": resolve(__dirname, "windows/desktop-lyric/index.html"),
+        "dynamic-island": resolve(__dirname, "windows/dynamic-island/index.html"),
+        "taskbar-lyric": resolve(__dirname, "windows/taskbar-lyric/index.html"),
+      },
+    },
+  },
+  resolve: {
+    alias: {
+      "@": resolve("src"),
+      "@shared": resolve(__dirname, "shared"),
+      "@windows": resolve(__dirname, "windows"),
+      "@root": resolve(__dirname),
+    },
+  },
+  plugins: [
+    vue(),
+    UnoCSS(),
+    AutoImport({
+      imports: ["vue", "pinia", "vue-router", "@vueuse/core", "vue-i18n"],
+      eslintrc: {
+        enabled: true,
+        filepath: "./auto-eslint.mjs",
+      },
+    }),
+    Icons({
+      compiler: "vue3",
+      scale: 1,
+      customCollections: {
+        sp: FileSystemIconLoader("./src/assets/icons"),
+      },
+    }),
+    Components({
+      dirs: ["src/components"],
+      // 生产构建复用已提交的声明，避免并行转换重复写入同一文件
+      dts: process.env.NODE_ENV !== "production",
+      resolvers: [RekaResolver(), IconsResolver({ prefix: "icon", customCollections: ["sp"] })],
+    }),
+  ],
+};
+
 export default defineConfig({
   main: {
     publicDir: resolve(__dirname, "public"),
@@ -60,6 +129,7 @@ export default defineConfig({
     },
   },
   preload: {
+    resolve: { alias: { "@shared": resolve(__dirname, "shared") } },
     build: {
       rolldownOptions: {
         input: {
@@ -68,72 +138,5 @@ export default defineConfig({
       },
     },
   },
-  renderer: {
-    root: ".",
-    define: {
-      __APP_VERSION__: JSON.stringify(pkg.version),
-      __APP_REPO_URL__: JSON.stringify(pkg.repository.url),
-      __APP_REPO_NAME__: JSON.stringify(pkg.productName),
-      __APP_AUTHOR__: JSON.stringify(pkg.author.name),
-      __APP_HOMEPAGE__: JSON.stringify(pkg.homepage),
-      __APP_AUTHOR_URL__: JSON.stringify(pkg.author.url),
-      __COMMIT_HASH__: JSON.stringify(getGitCommit()),
-      __COMMIT_DATE__: JSON.stringify(getGitDate()),
-    },
-    server: {
-      port: 14558,
-      watch: {
-        // Rust workspace 在根目录生成 target，避免监听大量构建产物
-        ignored: ["**/target/**"],
-      },
-    },
-    optimizeDeps: {
-      // 自动注册的组件不在 HTML 的静态导入图中，需扫描其惰性加载依赖
-      entries: ["index.html", "windows/**/index.html", "src/components/**/*.vue"],
-      include: ["reka-ui"],
-    },
-    publicDir: resolve(__dirname, "public"),
-    build: {
-      rolldownOptions: {
-        input: {
-          index: resolve(__dirname, "index.html"),
-          "desktop-lyric": resolve(__dirname, "windows/desktop-lyric/index.html"),
-          "dynamic-island": resolve(__dirname, "windows/dynamic-island/index.html"),
-          "taskbar-lyric": resolve(__dirname, "windows/taskbar-lyric/index.html"),
-        },
-      },
-    },
-    resolve: {
-      alias: {
-        "@": resolve("src"),
-        "@shared": resolve(__dirname, "shared"),
-        "@windows": resolve(__dirname, "windows"),
-        "@root": resolve(__dirname),
-      },
-    },
-    plugins: [
-      vue(),
-      UnoCSS(),
-      AutoImport({
-        imports: ["vue", "pinia", "vue-router", "@vueuse/core", "vue-i18n"],
-        eslintrc: {
-          enabled: true,
-          filepath: "./auto-eslint.mjs",
-        },
-      }),
-      Icons({
-        compiler: "vue3",
-        scale: 1,
-        customCollections: {
-          sp: FileSystemIconLoader("./src/assets/icons"),
-        },
-      }),
-      Components({
-        dirs: ["src/components"],
-        // 生产构建复用已提交的声明，避免并行转换重复写入同一文件
-        dts: process.env.NODE_ENV !== "production",
-        resolvers: [RekaResolver(), IconsResolver({ prefix: "icon", customCollections: ["sp"] })],
-      }),
-    ],
-  },
+  renderer: rendererConfig,
 });

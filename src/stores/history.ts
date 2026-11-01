@@ -1,21 +1,12 @@
 import localforage from "localforage";
 import type { Track } from "@shared/types/player";
+import { historyKey as keyOf, recordHistory, type HistoryEntry } from "@shared/utils/history";
+import { isAndroid } from "@/platform";
+import { invokeAndroid } from "@/platform/android";
+export type { HistoryEntry } from "@shared/utils/history";
 
 const db = localforage.createInstance({ name: "splayer", storeName: "history" });
 const HISTORY_KEY = "entries";
-
-/** 历史条数上限，超出按时间倒序裁掉尾部 */
-const MAX_HISTORY = 500;
-
-/** 单条播放历史 */
-export interface HistoryEntry {
-  track: Track;
-  /** 最近一次播放时间（unix ms） */
-  playedAt: number;
-}
-
-/** 同源同 id 视为同一首 */
-const keyOf = (track: Track): string => `${track.source}:${track.id}`;
 
 export const useHistoryStore = defineStore("history", () => {
   /** 倒序：最近播放在前 */
@@ -28,8 +19,12 @@ export const useHistoryStore = defineStore("history", () => {
     void db.setItem(HISTORY_KEY, toRaw(entries.value)).catch(() => {});
   };
 
-  /** 启动时读一次盘，之后内存为真值源 */
+  /** 安卓读取后台权威记录，桌面沿用首次加载的本地存储 */
   const load = (): Promise<void> => {
+    if (isAndroid)
+      return invokeAndroid<HistoryEntry[]>("history:list").then((value) => {
+        entries.value = value;
+      });
     if (!loadPromise) {
       loadPromise = db
         .getItem<HistoryEntry[]>(HISTORY_KEY)
@@ -46,11 +41,10 @@ export const useHistoryStore = defineStore("history", () => {
    * @param track 当前播放曲目
    */
   const record = async (track: Track): Promise<void> => {
+    if (isAndroid) return;
     if (!track?.id) return;
     await load();
-    const key = keyOf(track);
-    const filtered = entries.value.filter((item) => keyOf(item.track) !== key);
-    entries.value = [{ track, playedAt: Date.now() }, ...filtered].slice(0, MAX_HISTORY);
+    entries.value = recordHistory(entries.value, track);
     persist();
   };
 
@@ -59,6 +53,10 @@ export const useHistoryStore = defineStore("history", () => {
    * @param track 要删除的曲目
    */
   const remove = (track: Track): void => {
+    if (isAndroid) {
+      void invokeAndroid("history:remove", toRaw(track)).then(load);
+      return;
+    }
     const key = keyOf(track);
     const next = entries.value.filter((entry) => keyOf(entry.track) !== key);
     if (next.length === entries.value.length) return;
@@ -68,6 +66,10 @@ export const useHistoryStore = defineStore("history", () => {
 
   /** 清空全部历史 */
   const clear = (): void => {
+    if (isAndroid) {
+      void invokeAndroid("history:clear").then(load);
+      return;
+    }
     entries.value = [];
     persist();
   };

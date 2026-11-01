@@ -9,6 +9,7 @@ import { useUserStore } from "@/stores/user";
 import { useQQMusicStore } from "@/stores/qqmusic";
 import { useOnlineLibrary } from "@/composables/useOnlineLibrary";
 import { useStatusStore } from "@/stores/status";
+import { isAndroid } from "@/platform";
 import SongList from "@/components/list/SongList.vue";
 import * as player from "@/core/player";
 import IconLucideListChecks from "~icons/lucide/list-checks";
@@ -23,14 +24,16 @@ const status = useStatusStore();
 
 /** 当前 tab */
 const tab = computed({
-  get: () => status.likedPageTab,
+  get: () => (isAndroid ? "online" : status.likedPageTab),
   set: (value: ContentScope) => (status.likedPageTab = value),
 });
 
-const tabs = computed(() => [
-  { key: "online", label: t("liked.tabs.online") },
-  { key: "local", label: t("liked.tabs.local") },
-]);
+const tabs = computed(() =>
+  [
+    { key: "online", label: t("liked.tabs.online") },
+    { key: "local", label: t("liked.tabs.local") },
+  ].filter((item) => !isAndroid || item.key === "online"),
+);
 
 const searchQuery = ref("");
 
@@ -74,7 +77,7 @@ const handlePlayAll = (): void => {
 };
 
 onMounted(() => {
-  if (!library.initialized) library.load();
+  if (!isAndroid && !library.initialized) library.load();
 });
 
 const songListRef = shallowRef<InstanceType<typeof SongList> | null>(null);

@@ -1,11 +1,11 @@
 /** 注册音源接口和会话管理的跨进程入口 */
 
-import { ipcMain } from "electron";
+import { ipcMain } from "@main/runtime/ipc";
 import { clearNeteaseCookies, mergeNeteaseCookies } from "@main/apis/netease";
 import { cookieToJson } from "@main/apis/netease/core/cookie";
 import { clearQQMusicCookies, mergeQQMusicCookies } from "@main/apis/qqmusic";
 import { clearKugouSession, mergeKugouSession } from "@main/apis/kugou";
-import { openNeteaseLoginWindow } from "@main/window/login";
+import { openNeteaseLoginWindow } from "@main/runtime/login";
 import { coreLog } from "@main/utils/logger";
 import type { ApiPlatform } from "@shared/types/apis";
 import { callPlatformApi } from "@main/services/platformApi";

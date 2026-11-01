@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.node.json",
+  "include": ["android/node/**/*.ts", "shared/**/*", "electron/preload/*.d.ts"],
+  "compilerOptions": {
+    "composite": false,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@main/*": ["./electron/main/*"],
+      "@shared/*": ["./shared/*"],
+      "@splayer/audio-engine": ["./native/audio-engine"],
+      "@splayer/audio-capture": ["./native/audio-capture"],
+      "@splayer/media-ctrl": ["./native/media-ctrl"],
+      "@splayer/taskbar-lyric": ["./native/taskbar-lyric"],
+      "@splayer/taskbar-thumbnail": ["./native/taskbar-thumbnail"],
+      "@splayer/opencc": ["./native/opencc"]
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import type { UpdateEvent, UpdateState } from "@shared/types/update";
 import { toast } from "@/composables/useToast";
 import i18n from "@/i18n";
+import { isAndroid } from "@/platform";
 
 const { t } = i18n.global;
 
@@ -41,16 +42,17 @@ export const useUpdateStore = defineStore("update", () => {
     if (event.notification === "error" && event.manual) toast.error(t("update.failed"));
   };
 
-  const unsubscribe = window.api.update.onEvent(handleEvent);
+  const unsubscribe = isAndroid ? () => {} : window.api.update.onEvent(handleEvent);
   onScopeDispose(unsubscribe);
-  void window.api.update
-    .getState()
-    .then(async (state) => {
-      applyState(state);
-      if (phase.value === "idle" && mode.value !== "store")
-        applyState(await window.api.update.check(false));
-    })
-    .catch(console.warn);
+  if (!isAndroid)
+    void window.api.update
+      .getState()
+      .then(async (state) => {
+        applyState(state);
+        if (phase.value === "idle" && mode.value !== "store")
+          applyState(await window.api.update.check(false));
+      })
+      .catch(console.warn);
 
   /** 检查入口统一处理已有更新和商店安装形式。 */
   const checkManually = (): void => {

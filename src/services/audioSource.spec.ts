@@ -12,9 +12,16 @@ const mocks = vi.hoisted(() => ({
   cacheLookup: vi.fn(),
   cacheFetch: vi.fn(),
   pluginResolve: vi.fn(),
+  probe: vi.fn(),
   plugins: [] as PluginInfo[],
   settings: {
-    player: { songLevel: "hq", allowTrialPlay: false, preferPluginSource: false },
+    player: {
+      songLevel: "hq",
+      allowTrialPlay: false,
+      preferPluginSource: false,
+      verifySourceArtist: false,
+      verifySourceDuration: false,
+    },
     system: { cache: { songCache: { enabled: false } } },
   },
 }));
@@ -37,15 +44,22 @@ beforeEach(() => {
   mocks.cacheLookup.mockReset().mockResolvedValue(null);
   mocks.cacheFetch.mockReset().mockResolvedValue("C:/cache/lossless.bin");
   mocks.pluginResolve.mockReset();
+  mocks.probe.mockReset().mockResolvedValue({
+    success: true,
+    data: { codec: "flac", sampleRate: 96000, bitsPerSample: 24, channels: 2, bitRate: 3000000 },
+  });
   mocks.plugins = [];
   mocks.settings.player.preferPluginSource = false;
   mocks.settings.player.allowTrialPlay = false;
+  mocks.settings.player.verifySourceArtist = false;
+  mocks.settings.player.verifySourceDuration = false;
   mocks.settings.system.cache.songCache.enabled = false;
   Object.assign(window, {
     api: {
       download: { lookup: mocks.lookup },
       cache: { song: { lookup: mocks.cacheLookup, fetch: mocks.cacheFetch } },
       plugins: { resolveUrl: mocks.pluginResolve },
+      player: { probeSource: mocks.probe },
     },
   });
 });
@@ -192,7 +206,7 @@ describe("插件音源优先级", () => {
     const resolved = await resolveTrackSource(track, { quality: "hi-res" });
     await resolved?.cacheRequest?.("slot", undefined, "lossless");
     expect(mocks.cacheFetch).toHaveBeenCalledExactlyOnceWith(
-      "o:qqmusic:song-mid:lossless",
+      "o:qqmusic:v2:song-mid:lossless",
       "qqmusic",
       "https://plugin/song",
       "slot",
@@ -223,12 +237,16 @@ describe("插件音源优先级", () => {
     expect(mocks.qqmusic).toHaveBeenCalledOnce();
   });
 
-  it("双方失败时不重复调用已尝试插件并保留内置错误", async () => {
-    mocks.pluginResolve.mockRejectedValueOnce(new Error("unavailable"));
-    mocks.qqmusic.mockResolvedValueOnce({ available: false, errorCode: ErrorCode.NETWORK_ERROR });
+  it("双方失败时每档仅调用插件一次，并保留内置错误", async () => {
+    mocks.pluginResolve.mockRejectedValue(new Error("unavailable"));
+    mocks.qqmusic.mockResolvedValue({ available: false, errorCode: ErrorCode.NETWORK_ERROR });
     const onError = vi.fn();
     expect(await resolveTrackSource(track, { silent: true, onError })).toBeNull();
-    expect(mocks.pluginResolve).toHaveBeenCalledOnce();
+    expect(mocks.pluginResolve.mock.calls.map(([args]) => args.quality)).toEqual([
+      "hq",
+      "sq",
+      "lq",
+    ]);
     expect(onError).toHaveBeenCalledWith(ErrorCode.NETWORK_ERROR);
   });
 
@@ -249,25 +267,102 @@ describe("插件音源优先级", () => {
     expect(mocks.qqmusic).toHaveBeenCalledOnce();
   });
 
-  it.each([false, true])("插件失败后仍遵守试听开关：%s", async (allowTrialPlay) => {
-    mocks.settings.player.allowTrialPlay = allowTrialPlay;
-    mocks.pluginResolve.mockResolvedValueOnce({ url: "" });
-    mocks.netease.mockResolvedValueOnce({
+  it.each(["verifySourceArtist", "verifySourceDuration"] as const)(
+    "播放按 %s 开关排除不符插件，关闭时仍按音质择优",
+    async (setting) => {
+      const song = { ...track, title: "爱", artists: [{ name: "莫文蔚" }], duration: 300000 };
+      mocks.probe.mockResolvedValue({
+        success: true,
+        data: {
+          codec: "flac",
+          sampleRate: 96000,
+          bitsPerSample: 24,
+          channels: 2,
+          bitRate: 3000000,
+          artist: "其他歌手",
+          duration: 200000,
+        },
+      });
+      expect(await resolveTrackSource(song)).toMatchObject({ provider: "plugin" });
+      mocks.settings.player[setting] = true;
+      expect(await resolveTrackSource(song)).toMatchObject({ provider: "official" });
+      expect(mocks.pluginResolve).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          musicInfo: expect.objectContaining({ singer: "莫文蔚", interval: "05:00" }),
+        }),
+      );
+    },
+  );
+
+  describe.each(["netease", "qqmusic"] as const)("%s 试听回退", (source) => {
+    it.each([
+      [false, false],
+      [false, true],
+      [true, false],
+      [true, true],
+    ])(
+      "插件优先 %s、允许试听 %s 时遵守权限并豁免完整时长校验",
+      async (preferPlugin, allowTrial) => {
+        mocks.settings.player.preferPluginSource = preferPlugin;
+        mocks.settings.player.allowTrialPlay = allowTrial;
+        mocks.settings.player.verifySourceDuration = true;
+        mocks.settings.system.cache.songCache.enabled = true;
+        mocks.pluginResolve.mockResolvedValue({ url: "" });
+        mocks.probe.mockResolvedValue({
+          success: true,
+          data: { codec: "mp3", bitRate: 128000, duration: 60000 },
+        });
+        mocks[source].mockResolvedValue({
+          available: true,
+          url: "https://official/RS02trial.mp3",
+          isTrial: true,
+        });
+        const result = await resolveTrackSource(
+          { ...track, source, duration: 269000 },
+          { silent: true },
+        );
+        if (allowTrial) {
+          expect(result).toMatchObject({ provider: "trial" });
+          expect(result?.cacheRequest).toBeUndefined();
+        } else expect(result).toBeNull();
+        expect(mocks.probe).not.toHaveBeenCalled();
+        expect(mocks.pluginResolve).toHaveBeenCalledTimes(preferPlugin ? 3 : 1);
+      },
+    );
+  });
+
+  it("QQ 试听不会抢占较低音质的完整插件音源", async () => {
+    mocks.settings.player.allowTrialPlay = true;
+    mocks.settings.player.verifySourceDuration = true;
+    mocks.qqmusic.mockResolvedValue({
       available: true,
-      url: "https://official/trial",
+      url: "https://official/RS02trial.mp3",
       isTrial: true,
     });
-    const result = await resolveTrackSource({ ...track, source: "netease" }, { silent: true });
-    if (allowTrialPlay) expect(result).toMatchObject({ provider: "trial" });
-    else expect(result).toBeNull();
-    expect(mocks.pluginResolve).toHaveBeenCalledOnce();
+    mocks.pluginResolve.mockImplementation(async ({ quality }) => ({
+      url: quality === "sq" ? "https://plugin/full.mp3" : "",
+    }));
+    mocks.probe.mockResolvedValue({
+      success: true,
+      data: {
+        codec: "mp3",
+        sampleRate: 44100,
+        bitsPerSample: 16,
+        channels: 2,
+        bitRate: 128000,
+        duration: 269000,
+      },
+    });
+    expect(await resolveTrackSource({ ...track, duration: 269000 })).toMatchObject({
+      provider: "plugin",
+      source: "https://plugin/full.mp3",
+    });
+    expect(mocks.probe).toHaveBeenCalledExactlyOnceWith("https://plugin/full.mp3");
   });
 
   it.each(["download", "cache"])("开启插件优先仍先播放 %s", async (provider) => {
     mocks.settings.system.cache.songCache.enabled = true;
-    (provider === "download" ? mocks.lookup : mocks.cacheLookup).mockResolvedValueOnce(
-      "C:/song.flac",
-    );
+    (provider === "download" ? mocks.lookup : mocks.cacheLookup).mockResolvedValue("C:/song.flac");
     expect(await resolveTrackSource(track)).toMatchObject({ provider, source: "C:/song.flac" });
     expect(mocks.pluginResolve).not.toHaveBeenCalled();
     expect(mocks.qqmusic).not.toHaveBeenCalled();
@@ -281,7 +376,7 @@ describe("音源解析失败原因", () => {
   it.each(["netease", "qqmusic", "kugou"] as const)(
     "%s API 异常不会被无插件覆盖",
     async (source) => {
-      mocks[source].mockRejectedValueOnce(new Error("fetch failed"));
+      mocks[source].mockRejectedValue(new Error("fetch failed"));
       const onError = vi.fn();
       const track: Track = { id: "1", title: "test", source, artists: [], duration: 1000 };
       expect(await resolveTrackSource(track, { silent: true, onError })).toBeNull();

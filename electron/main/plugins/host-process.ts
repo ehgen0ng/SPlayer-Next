@@ -8,8 +8,7 @@
  * - 陈旧消息守卫：死进程的迟到消息按 generation 丢弃
  */
 
-import path from "node:path";
-import { utilityProcess, type UtilityProcess, app } from "electron";
+import { createPluginProcess, type PluginProcess } from "@main/runtime/pluginProcess";
 import type {
   HostCallMethod,
   PlaybackEventKind,
@@ -46,11 +45,8 @@ export interface PluginHostCallbacks {
 /** loadPlugin 入参（即 loadPlugin 消息去掉 kind） */
 export type PluginLoadSpec = Omit<Extract<SandboxIn, { kind: "loadPlugin" }>, "kind">;
 
-const resolveWorkerEntry = (): string =>
-  path.join(app.getAppPath(), "out", "main", "host.worker.js");
-
 class PluginHost {
-  private child: UtilityProcess | null = null;
+  private child: PluginProcess | null = null;
   /** 每次 (re)start 自增；用于丢弃死进程迟到消息 */
   private generation = 0;
   private hostReady = false;
@@ -97,10 +93,7 @@ class PluginHost {
       this.resolveStart = resolve;
       this.rejectStart = reject;
       const generation = ++this.generation;
-      const child = utilityProcess.fork(resolveWorkerEntry(), [], {
-        serviceName: "splayer-plugin-host",
-        stdio: "pipe",
-      });
+      const child = createPluginProcess();
       this.child = child;
       this.hostReady = false;
       this.heartbeatMisses = 0;

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useStatusStore } from "@/stores/status";
 import * as player from "@/core/player";
+import { isAndroid } from "@/platform";
 
 defineProps<{ open: boolean }>();
 
@@ -62,8 +63,10 @@ const onSyncToggle = (v: boolean): void => {
   player.setPitchSync(v).catch(() => {});
 };
 
+/** 恢复当前平台支持的播放参数 */
 const handleReset = (): void => {
   player.setSpeed(1.0).catch(() => {});
+  if (isAndroid) return;
   player.setPitch(0).catch(() => {});
   player.setPitchSync(true).catch(() => {});
 };
@@ -110,7 +113,7 @@ const handleReset = (): void => {
       </div>
 
       <!-- 音调同步 -->
-      <div class="flex items-center justify-between">
+      <div v-if="!isAndroid" class="flex items-center justify-between">
         <div class="flex flex-col">
           <span class="text-sm text-on-surface">{{ t("speed.pitchSync") }}</span>
           <span class="text-xs text-on-surface-variant/70">{{ t("speed.pitchSyncTip") }}</span>
@@ -120,6 +123,7 @@ const handleReset = (): void => {
 
       <!-- 音调（同步关闭时禁用，不隐藏） -->
       <div
+        v-if="!isAndroid"
         class="flex flex-col gap-2 transition-opacity"
         :class="!status.pitchSync && 'opacity-50'"
       >

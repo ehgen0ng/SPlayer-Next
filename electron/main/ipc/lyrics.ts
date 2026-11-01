@@ -8,12 +8,11 @@
  * 同 key 的并发请求会被 dedup：连按多次切歌只发一次网络。
  */
 
-import { ipcMain, dialog } from "electron";
+import { ipcMain } from "@main/runtime/ipc";
 import * as netease from "@main/apis/common/lyric/netease";
 import * as qqmusic from "@main/apis/common/lyric/qqmusic";
 import * as kugou from "@main/apis/common/lyric/kugou";
 import { fetchTTML } from "@main/apis/common/lyric/ttml";
-import { matchLocalTTML } from "@main/services/localLyricRepo";
 import { buildFingerprint, getMatchedId } from "@main/database/lyricMatchCache";
 import { coreLog } from "@main/utils/logger";
 import type { LyricMatchResponse, LyricTTMLResponse } from "@shared/types/lyrics";
@@ -111,7 +110,14 @@ const resolveTTMLOverlay = async (
   }
 };
 
-export const registerLyricsIpc = (): void => {
+/**
+ * 注册共用在线歌词查询，桌面按需附加本地仓库能力
+ * @param local - 桌面本地歌词查询与目录选择
+ */
+export const registerLyricsIpc = (local?: {
+  match: (track: Track) => Promise<string | null>;
+  pick: () => Promise<string | null>;
+}): void => {
   ipcMain.handle("lyrics:matchById", (_evt, platform: Platform, id: string) =>
     dedup(`byId:${platform}:${id}`, () => resolveById(platform, id)),
   );
@@ -121,23 +127,17 @@ export const registerLyricsIpc = (): void => {
   ipcMain.handle("lyrics:fetchTTMLOverlay", (_evt, track: Track, platform: "netease" | "qqmusic") =>
     dedup(`ttml:${platform}:${track.id}`, () => resolveTTMLOverlay(track, platform)),
   );
+  if (!local) return;
   ipcMain.handle(
     "lyrics:matchLocalTTML",
     async (_evt, track: Track): Promise<LyricTTMLResponse> => {
       try {
-        return { ok: true, data: await matchLocalTTML(track) };
+        return { ok: true, data: await local.match(track) };
       } catch (err) {
         coreLog.warn(`[lyrics] matchLocalTTML(${track.title}) failed:`, err);
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
   );
-  ipcMain.handle("lyrics:pickLyricRepoDir", async (): Promise<string | null> => {
-    const result = await dialog.showOpenDialog({
-      title: "选择本地 TTML 歌词库目录",
-      properties: ["openDirectory"],
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
-  });
+  ipcMain.handle("lyrics:pickLyricRepoDir", local.pick);
 };

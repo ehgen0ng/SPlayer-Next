@@ -1,6 +1,10 @@
 import type { AudioQuality, Track } from "@shared/types/player";
 import type { QualityLevel } from "@/utils/quality";
-import { selectAudioSource, type SourceSelectionAttempt } from "@/services/audioSourceSelection";
+import {
+  matchesAudioSource,
+  selectAudioSource,
+  type SourceSelectionAttempt,
+} from "@/services/audioSourceSelection";
 import { isPlatform } from "@shared/types/platform";
 import { streamingSourceForTrack } from "@shared/utils/streamingSource";
 import { resolveByPlugin } from "@/services/audioSource";
@@ -8,6 +12,8 @@ import { resolveNeteaseDownloadUrl } from "@/apis/song/netease";
 import { resolveQQMusicUrl } from "@/apis/song/qqmusic";
 import { resolveKugouUrl } from "@/apis/song/kugou";
 import { useSettingsStore } from "@/stores/settings";
+import { usePluginsStore } from "@/stores/plugins";
+import { getSourcePlugins } from "@/services/onlineSource";
 
 /** 下载源解析结果 */
 export interface DownloadSource {
@@ -45,7 +51,8 @@ export const resolveDownloadSource = async (
     }
   }
   if (!isPlatform(track.source) && track.source !== "plugin") return null;
-  const preferPlugin = useSettingsStore().player.preferPluginSource;
+  const settings = useSettingsStore().player;
+  const preferPlugin = settings.preferPluginSource;
   /**
    * 按优先级解析本档下一个下载候选
    * @param attempt - 已尝试来源和当前音质
@@ -54,13 +61,7 @@ export const resolveDownloadSource = async (
   const resolveNext = async (attempt: SourceSelectionAttempt): Promise<DownloadSource | null> => {
     if (signal?.aborted) return null;
     if (preferPlugin || attempt.skipOfficialOnline || track.source === "plugin") {
-      const resolved = await resolveByPlugin(
-        track,
-        attempt.quality,
-        attempt.skipPluginIds,
-        attempt.onPluginAttempt,
-        signal,
-      );
+      const resolved = await resolveByPlugin(track, attempt.quality, attempt.skipPluginIds, signal);
       if (signal?.aborted) return null;
       if (resolved.ok && !resolved.isTrial)
         return { url: resolved.url, pluginId: resolved.pluginId };
@@ -78,35 +79,58 @@ export const resolveDownloadSource = async (
           const resolved = await (track.source === "qqmusic"
             ? resolveQQMusicUrl(track, attempt.quality)
             : resolveKugouUrl(track, attempt.quality));
-          if (resolved.available) return { url: resolved.url };
+          if (resolved.available && !resolved.isTrial) return { url: resolved.url };
         }
       } catch {
         // 官方下载接口失败后，继续本档插件或降级流程
       }
     }
     if (!preferPlugin && !attempt.skipOfficialOnline && track.source !== "plugin") {
-      const resolved = await resolveByPlugin(
-        track,
-        attempt.quality,
-        attempt.skipPluginIds,
-        attempt.onPluginAttempt,
-        signal,
-      );
+      const resolved = await resolveByPlugin(track, attempt.quality, attempt.skipPluginIds, signal);
       if (resolved.ok && !resolved.isTrial && !signal?.aborted)
         return { url: resolved.url, pluginId: resolved.pluginId };
     }
     return null;
   };
   if (!preferPlugin) {
-    return resolveNext({
-      quality: level,
-      skipPluginIds: [],
-      skipOfficialOnline: false,
-      onPluginAttempt: () => {},
-      signal,
-    });
+    const skipped: string[] = [];
+    while (!signal?.aborted) {
+      const source = await resolveNext({
+        quality: level,
+        skipPluginIds: skipped,
+        skipOfficialOnline: skipped.length > 0,
+        signal,
+      });
+      if (!source?.pluginId || (!settings.verifySourceArtist && !settings.verifySourceDuration))
+        return source;
+      const info = await window.api.player.probeSource(source.url).catch(() => null);
+      if (signal?.aborted) break;
+      if (
+        info?.success &&
+        info.data &&
+        matchesAudioSource(
+          track,
+          info.data,
+          settings.verifySourceArtist,
+          settings.verifySourceDuration,
+        )
+      )
+        return { ...source, quality: info.data, format: info.data.codec };
+      if (skipped.includes(source.pluginId)) break;
+      skipped.push(source.pluginId);
+    }
+    return null;
   }
-  const selected = await selectAudioSource(level, resolveNext, (source) => source.url, signal);
+  const selected = await selectAudioSource(level, resolveNext, {
+    track,
+    verifyArtist: settings.verifySourceArtist,
+    verifyDuration: settings.verifySourceDuration,
+    pluginIds: getSourcePlugins(track, usePluginsStore().orderedList).map(
+      (plugin) => plugin.manifest.id,
+    ),
+    probe: (url) => window.api.player.probeSource(url),
+    signal,
+  });
   return selected
     ? { ...selected.source, quality: selected.quality, format: selected.quality.codec }
     : null;

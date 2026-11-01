@@ -15,6 +15,7 @@
 import vm from "node:vm";
 import crypto from "node:crypto";
 import zlib from "node:zlib";
+import { parentPort as workerPort } from "node:worker_threads";
 import type {
   ActionIO,
   HostApi,
@@ -31,14 +32,19 @@ import type {
 } from "@shared/types/plugin";
 import { installLxShim } from "./lx-shim";
 
-const parentPort: {
+interface HostPort {
   on: (evt: "message", cb: (event: { data: SandboxIn }) => void) => void;
   postMessage: (msg: SandboxOut) => void;
-} = (process as any).parentPort;
+}
 
-if (!parentPort) {
+const electronPort = (process as NodeJS.Process & { parentPort?: HostPort }).parentPort;
+if (!electronPort && !workerPort) {
   process.exit(1);
 }
+const parentPort: HostPort = electronPort ?? {
+  on: (event, callback) => workerPort!.on(event, (data: SandboxIn) => callback({ data })),
+  postMessage: (message) => workerPort!.postMessage(message),
+};
 
 /**
  * 剥离日志等辅助消息中不可克隆的字段

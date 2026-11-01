@@ -4,6 +4,7 @@ import { useMediaStore } from "@/stores/media";
 import { useStatusStore } from "@/stores/status";
 import { useSettingsStore } from "@/stores/settings";
 import { formatFileSize } from "@/utils/format";
+import { isAndroid } from "@/platform";
 
 const { t } = useI18n();
 const media = useMediaStore();
@@ -33,24 +34,29 @@ watch(
   { immediate: true },
 );
 
-/** 获取底层真实流信息 */
-const fetchStreamInfo = async () => {
-  try {
-    const res = await window.api.player.getStreamInfo();
-    if (res?.success && res.data) {
-      streamInfo.value = res.data;
-    }
-  } catch {
-    streamInfo.value = null;
-  }
-};
-
-// 弹窗打开或播放状态变化时刷新真实底层数据
+// 切歌或换源时清空旧输出参数，并忽略迟到的查询结果
 watch(
-  () => [status.audioInfoOpen, status.state, media.track?.id],
-  ([open]) => {
-    if (open) {
-      void fetchStreamInfo();
+  () =>
+    [
+      status.audioInfoOpen,
+      status.state,
+      media.track?.id,
+      status.currentSource,
+      status.speed,
+      status.trackLoading,
+    ] as const,
+  async ([open], _previous, onCleanup) => {
+    streamInfo.value = null;
+    if (!open || status.trackLoading) return;
+    let active = true;
+    onCleanup(() => {
+      active = false;
+    });
+    try {
+      const res = await window.api.player.getStreamInfo();
+      if (active) streamInfo.value = res?.success ? (res.data ?? null) : null;
+    } catch {
+      // 输出流尚未创建或已经释放时保持未知
     }
   },
   { immediate: true },
@@ -122,13 +128,15 @@ const coreCards = computed(() => {
   const currentQuality = quality.value;
   const currentStream = streamInfo.value;
 
-  const outputSampleRate = currentStream?.outputSampleRate || currentQuality?.sampleRate;
+  const outputSampleRate =
+    currentStream?.outputSampleRate || (isAndroid ? undefined : currentQuality?.sampleRate);
   const outputBitDepth =
     currentStream?.outputBits ||
-    (currentQuality?.bitsPerSample && currentQuality.bitsPerSample > 0
+    (!isAndroid && currentQuality?.bitsPerSample && currentQuality.bitsPerSample > 0
       ? currentQuality.bitsPerSample
       : 0);
-  const outputChannels = currentStream?.outputChannels || currentQuality?.channels;
+  const outputChannels =
+    currentStream?.outputChannels || (isAndroid ? undefined : currentQuality?.channels);
 
   return [
     { label: t("quality.sampleRate"), value: formatSampleRate(outputSampleRate) },
@@ -143,6 +151,7 @@ const currentDeviceName = computed(() => {
   if (streamInfo.value?.deviceName) {
     return streamInfo.value.deviceName;
   }
+  if (isAndroid) return t("quality.androidSystemOutput");
   const selectedDeviceId = settings.system.player.outputDevice;
   if (!selectedDeviceId) {
     const defaultDevice = status.outputDevices.find((device) => device.isDefault);
@@ -159,6 +168,7 @@ const isExclusive = computed(() => {
   if (streamInfo.value != null) {
     return streamInfo.value.isExclusive;
   }
+  if (isAndroid) return false;
   return settings.system.player.audioOutputMode === "exclusive";
 });
 const outputModeText = computed(() => {
@@ -172,9 +182,11 @@ const isResampling = computed(() => {
   if (streamInfo.value != null) {
     return streamInfo.value.isResampling;
   }
+  if (isAndroid) return null;
   return !isExclusive.value;
 });
 const resamplingStatusText = computed(() => {
+  if (isResampling.value === null) return t("quality.unknown");
   return isResampling.value ? t("common.enabled") : t("common.disabled");
 });
 
@@ -260,15 +272,22 @@ const sections = computed<InfoSection[]>(() => [
       { label: t("settings.outputDevice.label"), value: currentDeviceName.value, colSpan: true },
     ],
   },
-  {
-    title: t("quality.dspSection"),
-    items: [
-      { label: t("equalizer.title"), value: equalizerStatusText.value },
-      { label: t("quality.tempoPitch"), value: tempoPitchStatusText.value },
-      { label: t("settings.loudnessNormalization.label"), value: loudnessNormalizationText.value },
-      { label: t("quality.limiter"), value: limiterStatusText.value },
-    ],
-  },
+  ...(!isAndroid
+    ? [
+        {
+          title: t("quality.dspSection"),
+          items: [
+            { label: t("equalizer.title"), value: equalizerStatusText.value },
+            { label: t("quality.tempoPitch"), value: tempoPitchStatusText.value },
+            {
+              label: t("settings.loudnessNormalization.label"),
+              value: loudnessNormalizationText.value,
+            },
+            { label: t("quality.limiter"), value: limiterStatusText.value },
+          ],
+        },
+      ]
+    : []),
 ]);
 </script>
 

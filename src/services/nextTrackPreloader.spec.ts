@@ -97,7 +97,7 @@ describe("下一曲真实预载", () => {
     preloader.disposeNextTrackPreload();
   });
 
-  it.each(["plugin", "official"])("插件优先时提前校验并缓存选中的 %s 音源", async (provider) => {
+  it.each(["plugin", "official"])("缓存共享入口已校验的 %s 音源", async (provider) => {
     mocks.settings.player.preferPluginSource = true;
     mocks.settings.player.songLevel = "hi-res";
     const quality = {
@@ -116,12 +116,13 @@ describe("下一曲真实预载", () => {
         pluginId: provider === "plugin" ? "a" : undefined,
         fromCache: false,
         cacheRequest,
+        verifiedQuality: quality,
       })
       .mockResolvedValue(null);
     const preloader = await import("./nextTrackPreloader");
     preloader.scheduleNextTrackPreload();
     await flushPromises();
-    expect(mocks.probe).toHaveBeenCalledOnce();
+    expect(mocks.probe).not.toHaveBeenCalled();
     expect(cacheRequest).toHaveBeenCalledExactlyOnceWith(
       expect.any(String),
       expect.any(AbortSignal),
@@ -142,7 +143,7 @@ describe("下一曲真实预载", () => {
     });
   });
 
-  it("提前比较码率，缓存尚未完成时直接交接已选链接并让下载继续", async () => {
+  it("共用已选链接，缓存未完成时交接链接并让下载继续", async () => {
     mocks.settings.player.preferPluginSource = true;
     mocks.settings.player.songLevel = "lossless";
     const quality = {
@@ -157,33 +158,24 @@ describe("下一曲真实预载", () => {
       data: { ...quality, bitRate: 2595000, channels: 6 },
     });
     let finish!: (file: string) => void;
-    const firstCache = vi.fn();
     const bestCache = vi.fn(
       () =>
         new Promise<string>((resolve) => {
           finish = resolve;
         }),
     );
-    mocks.resolve
-      .mockResolvedValueOnce({
-        source: "https://music/a",
-        provider: "plugin",
-        pluginId: "a",
-        fromCache: false,
-        cacheRequest: firstCache,
-      })
-      .mockResolvedValueOnce({
-        source: "https://music/b",
-        provider: "plugin",
-        pluginId: "b",
-        fromCache: false,
-        cacheRequest: bestCache,
-      })
-      .mockResolvedValue(null);
+    mocks.resolve.mockResolvedValueOnce({
+      source: "https://music/b",
+      provider: "plugin",
+      pluginId: "b",
+      fromCache: false,
+      verifiedQuality: { ...quality, bitRate: 2595000, channels: 6 },
+      cacheRequest: bestCache,
+    });
     const preloader = await import("./nextTrackPreloader");
     preloader.scheduleNextTrackPreload();
     await flushPromises();
-    expect(firstCache).not.toHaveBeenCalled();
+    expect(mocks.resolve).toHaveBeenCalledOnce();
     expect(bestCache).toHaveBeenCalledOnce();
     expect(mocks.prepare).not.toHaveBeenCalled();
     const result = preloader.consumePreloadedTrack(mocks.candidate.track as Track);
@@ -232,32 +224,27 @@ describe("下一曲真实预载", () => {
     expect(mocks.cancel).not.toHaveBeenCalled();
   });
 
-  it("校验期间作废后，迟到的探测结果不能继续缓存", async () => {
-    mocks.settings.player.preferPluginSource = true;
+  it("选源期间作废后，迟到结果不能继续缓存", async () => {
     let finish!: (result: unknown) => void;
     const cacheRequest = vi.fn();
-    mocks.probe.mockImplementationOnce(
+    mocks.resolve.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           finish = resolve;
         }),
     );
-    mocks.resolve
-      .mockResolvedValueOnce({
-        source: "https://music/a",
-        provider: "plugin",
-        pluginId: "a",
-        fromCache: false,
-        cacheRequest,
-      })
-      .mockResolvedValue(null);
     const preloader = await import("./nextTrackPreloader");
     preloader.scheduleNextTrackPreload();
     await flushPromises();
+    const options = mocks.resolve.mock.calls[0]![1];
     preloader.invalidateNextTrackPreload();
+    expect(options.signal.aborted).toBe(true);
     finish({
-      success: true,
-      data: { codec: "flac", sampleRate: 96000, bitsPerSample: 24, channels: 2, bitRate: 3000000 },
+      source: "https://music/a",
+      provider: "plugin",
+      pluginId: "a",
+      fromCache: false,
+      cacheRequest,
     });
     await flushPromises();
     expect(cacheRequest).not.toHaveBeenCalled();

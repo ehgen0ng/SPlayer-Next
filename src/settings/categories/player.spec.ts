@@ -6,12 +6,18 @@ import SettingsItem from "@/components/settings/SettingsItem.vue";
 import playerCategory from "./player";
 
 const mocks = vi.hoisted(() => ({
+  android: false,
   enabled: false as boolean | string,
   cache: { enabled: false, cacheStreaming: false },
   player: { preloadNextTrack: false, transitionMode: "none" },
   confirm: vi.fn(),
   setSystem: vi.fn(),
   reload: vi.fn(),
+}));
+vi.mock("@/platform", () => ({
+  get isAndroid() {
+    return mocks.android;
+  },
 }));
 vi.mock("@/stores/settings", () => ({
   useSettingsStore: () => ({
@@ -69,6 +75,7 @@ describe("切换播放音源", () => {
 
 describe("开启预载的缓存确认", () => {
   beforeEach(() => {
+    mocks.android = false;
     vi.clearAllMocks();
     mocks.enabled = false;
     mocks.cache = { enabled: false, cacheStreaming: false };
@@ -109,6 +116,23 @@ describe("开启预载的缓存确认", () => {
     mocks.cache = { enabled: true, cacheStreaming: true };
     expect(item.confirm!.when!(true)).toBe(false);
     expect(item.confirm!.when!(false)).toBe(false);
+  });
+
+  it("车机预载不要求开启桌面专属缓存", async () => {
+    mocks.android = true;
+    expect(item.confirm!.when!(true)).toBe(false);
+    await item.action?.(true);
+    expect(mocks.setSystem).not.toHaveBeenCalled();
+  });
+
+  it("歌手与时长校验分别绑定设置，时长默认开启", () => {
+    for (const key of ["verifySourceArtist", "verifySourceDuration"]) {
+      const setting = playerCategory
+        .sections!.flatMap((section) => section.items)
+        .find((entry) => entry.key === key)!;
+      expect(setting.defaultValue).toBe(key === "verifySourceDuration");
+      expect(setting.binding).toEqual({ store: "settings", path: `player.${key}` });
+    }
   });
 });
 

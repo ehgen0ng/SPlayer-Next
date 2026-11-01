@@ -9,6 +9,7 @@ on:
       - "src/**"
       - "electron/**"
       - "native/**"
+      - "android/**"
       - "shared/**"
       - "public/**"
       - "resources/**"
@@ -17,8 +18,11 @@ on:
       - "pnpm-lock.yaml"
       - "electron-builder.config.ts"
       - "electron.vite.config.ts"
+      - "vite.android.config.ts"
+      - "capacitor.config.ts"
       - "tsconfig*.json"
       - ".github/workflows/dev.yml"
+      - ".github/workflows/android.yml"
   workflow_dispatch:
 
 concurrency:
@@ -29,6 +33,9 @@ env:
   NODE_VERSION: 24.x
 
 jobs:
+  android:
+    uses: ./.github/workflows/android.yml
+
   build:
     name: Build on ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}

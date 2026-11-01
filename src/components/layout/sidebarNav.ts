@@ -1,4 +1,5 @@
 import type { Component } from "vue";
+import { supportsRoute } from "@/platform";
 import IconLucideHome from "~icons/lucide/home";
 import IconLucideMusic from "~icons/lucide/music";
 import IconLucideUser from "~icons/lucide/user";
@@ -45,7 +46,10 @@ const SIDEBAR_NAV_ENTRIES: SidebarNavEntry[] = [
 
 /** key → 导航项元数据 */
 export const SIDEBAR_NAV_META: Record<string, SidebarNavEntry> = Object.fromEntries(
-  SIDEBAR_NAV_ENTRIES.map((entry) => [entry.key, entry]),
+  SIDEBAR_NAV_ENTRIES.filter((entry) => supportsRoute(entry.key)).map((entry) => [
+    entry.key,
+    entry,
+  ]),
 );
 
 /**

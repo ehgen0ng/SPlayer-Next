@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAndroid } from "@/platform";
 import { useDataStore } from "@/stores/data";
 import { useUserStore } from "@/stores/user";
 import { neteaseQrLoginAdapter, syncNeteaseDeviceName } from "@/apis/login/netease";
@@ -288,7 +289,7 @@ const handleQrSuccess = async (): Promise<void> => {
           </SButton>
 
           <SButton
-            v-if="adapter.openWebLogin"
+            v-if="!isAndroid && adapter.openWebLogin"
             variant="secondary"
             size="small"
             type="primary"

@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain } from "@main/runtime/ipc";
 import type {
   LegacyPlaylistRecord,
   PlaylistCreateInput,

@@ -7,7 +7,8 @@
  * 并订阅 `plugin:status` 广播以更新 UI。
  */
 
-import { ipcMain, dialog } from "electron";
+import { ipcMain } from "@main/runtime/ipc";
+import { pickPluginSource } from "@main/runtime/files";
 import type { PluginInfo, PluginGrant, PluginSearchArgs } from "@shared/types/plugin";
 import { pluginRegistry } from "@main/plugins/registry";
 import { resolveUrl, invokeMenu } from "@main/plugins/router";
@@ -45,17 +46,11 @@ export const registerPluginIpc = (): void => {
     }
   });
 
-  // 弹出原生文件选择框 → 安装选中的 .js 脚本
-  // 注意：不要把主窗口作为 parent 传入，frameless 窗口 + 模态对话框会在 Windows 上卡死主窗
   ipcMain.handle("plugin:pickAndInstall", async () => {
-    const res = await dialog.showOpenDialog({
-      title: "选择插件脚本",
-      filters: [{ name: "Plugin Script", extensions: ["js"] }],
-      properties: ["openFile"],
-    });
-    if (res.canceled || !res.filePaths[0]) return { ok: false, cancelled: true };
     try {
-      const info = await pluginRegistry.install(res.filePaths[0]);
+      const source = await pickPluginSource();
+      if (source === null) return { ok: false, cancelled: true };
+      const info = await pluginRegistry.installFromSource(source);
       return { ok: true, id: info.manifest.id };
     } catch (err) {
       coreLog.warn("[plugin] pickAndInstall failed:", err);

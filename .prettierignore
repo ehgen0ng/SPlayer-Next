@@ -10,3 +10,10 @@ components.d.ts
 native/*/index.d.ts
 
 resources/plugins/*.js
+
+android/vendor
+android/.gradle
+android/**/build
+android/**/.cxx
+android/app/src/main/assets
+android/capacitor-cordova-android-plugins

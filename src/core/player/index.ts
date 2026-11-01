@@ -45,19 +45,18 @@ import { extractColorFromUrl } from "@/utils/color";
 import { handleError, isSkippableError } from "@/utils/errors";
 import { ErrorCode } from "@shared/types/errors";
 import { isPlatform } from "@shared/types/platform";
-import {
-  compareAudioQuality,
-  getQualityLevel,
-  QUALITY_LABELS,
-  QUALITY_ORDER,
-  type QualityLevel,
-} from "@/utils/quality";
+import { getQualityLevel, QUALITY_LABELS, QUALITY_ORDER } from "@/utils/quality";
 import { shouldSkipKeywordTrack } from "@/utils/preset/skipKeywords";
 import { toast } from "@/composables/useToast";
 import i18n from "@/i18n";
+import { isAndroid } from "@/platform";
+import { invokeAndroid } from "@/platform/android";
+import { initAndroidPlayback } from "@/platform/androidPlayback";
 
 /** 加载运行时选项 */
 interface LoadRuntimeOptions {
+  /** 候选音源加载结束后，由整轮选源流程统一结束加载状态 */
+  keepLoading?: boolean;
   /** 同一曲换源时复用已经发起的歌词、封面和取色任务 */
   skipOnlineMetadata?: boolean;
   /** 待消费的原生预载槽位标识，仅用于首次加载尝试 */
@@ -99,6 +98,7 @@ type LoadSourceResult =
 let loadToken = 0;
 /** loadTrack 竞态 token */
 let trackToken = 0;
+let sourceSelectionAbort: AbortController | undefined;
 /** 暂停操作代次，防止热重载覆盖期间的手动暂停 */
 let pauseToken = 0;
 let transitionInFlight = false;
@@ -243,7 +243,7 @@ export const load = async (
     if (result.error && !options.suppressErrorToast) handleError(result.error);
     return { ok: false, error: result.error };
   } finally {
-    if (token === loadToken) status.trackLoading = false;
+    if (token === loadToken && !options.keepLoading) status.trackLoading = false;
   }
 };
 
@@ -260,20 +260,19 @@ const createSourceRetryState = (): SourceRetryState => ({
  * @param track - 要解析的 Track
  * @param retry - 当前重试状态
  * @param onError - 接收解析失败原因
- * @param quality - 本轮请求音质，省略时使用播放设置
+ * @param signal - 切歌或停止时取消后续选源
  * @returns 解析后的音源
  */
 const resolveTrackSourceWithRetry = (
   track: Track,
   retry: SourceRetryState,
   onError: (error: string) => void,
-  quality?: QualityLevel,
+  signal?: AbortSignal,
 ): Promise<ResolvedTrackSource | null> =>
   resolveTrackSource(track, {
     silent: true,
     onError,
-    quality,
-    onPluginAttempt: (pluginId) => retry.skippedPluginIds.add(pluginId),
+    signal,
     skipDownloaded: retry.skipDownloaded,
     skipCache: retry.skipCache,
     skipOfficialOnline: retry.skipOfficialOnline,
@@ -327,163 +326,129 @@ const loadTrackSourceWithFallback = async (
   preparedId?: string,
   cacheLeaseId?: string,
 ): Promise<LoadSourceResult> => {
-  let retry = createSourceRetryState();
+  const retry = createSourceRetryState();
+  sourceSelectionAbort?.abort();
+  const abort = new AbortController();
+  sourceSelectionAbort = abort;
   const settings = useSettingsStore();
   const requested = settings.player.songLevel;
   const checkQuality = settings.player.preferPluginSource && isPlatform(track.source);
   const qualityOrder = QUALITY_ORDER;
   const requestedRank = qualityOrder.indexOf(requested);
-  let attemptRank = requestedRank;
   const myPauseToken = pauseToken;
-  // 只保留一个较好的候选地址，不保留解码资源或歌词
-  let fallback: { resolved: ResolvedTrackSource; rank: number; quality: AudioQuality } | undefined;
-  let useFallback = false;
   let firstTry = initialResolved ?? null;
   let metadataRequested = false;
   let lastFailure: Extract<LoadSourceResult, { status: "loaded" }> | undefined;
-  while (true) {
-    const usingInitial = firstTry !== null && !useFallback;
-    let resolutionError: string | undefined;
-    let resolved = useFallback
-      ? fallback!.resolved
-      : (firstTry ??
+  try {
+    while (true) {
+      const usingInitial = firstTry !== null;
+      let resolutionError: string | undefined;
+      let resolved =
+        firstTry ??
         (await resolveTrackSourceWithRetry(
           track,
           retry,
           (error) => {
             resolutionError = error;
           },
-          checkQuality ? qualityOrder[attemptRank] : undefined,
-        )));
-    firstTry = null;
-    if (!shouldContinue()) return { status: "cancelled" };
-    if (!resolved && checkQuality) {
-      if (fallback && fallback.rank >= attemptRank) {
-        resolved = fallback.resolved;
-        useFallback = true;
-      } else if (attemptRank > 0) {
-        attemptRank--;
-        retry = {
-          ...createSourceRetryState(),
-          skipDownloaded: retry.skipDownloaded,
-          skipCache: retry.skipCache,
-        };
-        continue;
-      }
-    }
-    // 没有可用插件不代表原音源失败原因，优先保留实际加载错误
-    if (!resolved) return lastFailure ?? { status: "unresolved", error: resolutionError };
-    const verify =
-      checkQuality &&
-      (resolved.provider === "plugin" ||
-        resolved.provider === "official" ||
-        Boolean(usingInitial && resolved.verifiedQuality));
-    // 校验完成前保持静音，避免尝试多个音源时播放出片段
-    const result = await load(resolved.source, verify ? false : autoPlay, track, {
-      skipOnlineMetadata: metadataRequested,
-      preparedId: usingInitial ? preparedId : undefined,
-      cacheLeaseId: usingInitial ? cacheLeaseId : undefined,
-      suppressErrorToast: true,
-      context,
-    });
-    metadataRequested = true;
-    if (!shouldContinue()) return { status: "cancelled" };
-    if (result.ok && verify) {
-      const actual = getQualityLevel(result.quality);
-      const rank = qualityOrder.indexOf(actual);
-      const preselected = usingInitial && resolved.verifiedQuality;
-      if (preselected && rank < qualityOrder.indexOf(getQualityLevel(preselected))) {
-        // 已预选的文件参数发生变化，跳过旧缓存重新选源
-        retry.skipCache = true;
-        useStatusStore().trackLoading = true;
-        continue;
-      }
-      console.info("[player:quality]", {
-        provider: resolved.provider,
-        pluginId: resolved.pluginId,
-        requested,
-        attempted: qualityOrder[attemptRank],
-        actual,
-        codec: result.quality?.codec,
-        bitRate: result.quality?.bitRate,
-      });
-      if (
-        !preselected &&
-        !useFallback &&
-        result.quality &&
-        markRetryableSourceFailure(resolved, retry)
-      ) {
-        const qualifiedPlugin = resolved.provider === "plugin" && rank >= attemptRank;
-        if (qualifiedPlugin) retry.skipOfficialOnline = true;
-        if (
-          !fallback ||
-          (qualifiedPlugin && fallback.resolved.provider === "official") ||
-          compareAudioQuality(result.quality, fallback.quality) > 0
-        ) {
-          fallback = { resolved, rank, quality: result.quality };
-        }
-        useStatusStore().trackLoading = true;
-        continue;
-      }
-      if (rank < requestedRank) {
-        // 降级结果不能写进所选音质的缓存，否则后续播放会直接命中低音质
-        resolved = { ...resolved, cacheRequest: undefined };
-        toast.warning(
-          i18n.global.t("player.qualityFallback", {
-            requested: QUALITY_LABELS[requested],
-            actual: QUALITY_LABELS[actual],
-          }),
-        );
-      }
-      if (autoPlay && myPauseToken === pauseToken) {
-        const started = await window.api.player.play();
-        if (!shouldContinue()) return { status: "cancelled" };
-        if (!started.success) {
-          return { status: "loaded", result: { ok: false, error: started.error }, resolved };
-        }
-        if (myPauseToken === pauseToken) {
-          useStatusStore().state = "playing";
-          playback.setPlaying(true);
-        }
-      }
+          abort.signal,
+        ));
+      firstTry = null;
       if (!shouldContinue()) return { status: "cancelled" };
+      // 没有可用插件不代表原音源失败原因，优先保留实际加载错误
+      if (!resolved) return lastFailure ?? { status: "unresolved", error: resolutionError };
+      const verify =
+        checkQuality &&
+        (resolved.provider === "plugin" ||
+          resolved.provider === "official" ||
+          Boolean(usingInitial && resolved.verifiedQuality));
+      // 校验完成前保持静音，避免尝试多个音源时播放出片段
+      const result = await load(resolved.source, verify ? false : autoPlay, track, {
+        keepLoading: true,
+        skipOnlineMetadata: metadataRequested,
+        preparedId: usingInitial ? preparedId : undefined,
+        cacheLeaseId: usingInitial ? cacheLeaseId : undefined,
+        suppressErrorToast: true,
+        context,
+      });
+      metadataRequested = true;
+      if (!shouldContinue()) return { status: "cancelled" };
+      if (result.ok && verify) {
+        const actual = getQualityLevel(result.quality);
+        const rank = qualityOrder.indexOf(actual);
+        const preselected = resolved.verifiedQuality;
+        if (preselected && rank < qualityOrder.indexOf(getQualityLevel(preselected))) {
+          // 已预选的文件参数发生变化，跳过旧缓存重新选源
+          retry.skipCache = true;
+          markRetryableSourceFailure(resolved, retry);
+          continue;
+        }
+        console.info("[player:quality]", {
+          provider: resolved.provider,
+          pluginId: resolved.pluginId,
+          requested,
+          actual,
+          codec: result.quality?.codec,
+          bitRate: result.quality?.bitRate,
+        });
+        if (rank < requestedRank) {
+          // 降级结果不能写进所选音质的缓存，否则后续播放会直接命中低音质
+          resolved = { ...resolved, cacheRequest: undefined };
+          toast.warning(
+            i18n.global.t("player.qualityFallback", {
+              requested: QUALITY_LABELS[requested],
+              actual: QUALITY_LABELS[actual],
+            }),
+          );
+        }
+        if (autoPlay && myPauseToken === pauseToken) {
+          const started = await window.api.player.play();
+          if (!shouldContinue()) return { status: "cancelled" };
+          if (!started.success) {
+            return { status: "loaded", result: { ok: false, error: started.error }, resolved };
+          }
+          if (myPauseToken === pauseToken) {
+            useStatusStore().state = "playing";
+            playback.setPlaying(true);
+          }
+        }
+        if (!shouldContinue()) return { status: "cancelled" };
+      }
+      if (
+        result.ok &&
+        resolved.pluginId &&
+        (resolved.provider === "plugin" || Boolean(resolved.verifiedQuality))
+      ) {
+        usePluginsStore().recordMusicSuccess(resolved.pluginId);
+      }
+      if (!result.ok) lastFailure = { status: "loaded", result, resolved };
+      // 预载 URL 可能已经过期，非本地来源失败后重新解析一次最新地址
+      if (
+        usingInitial &&
+        !result.ok &&
+        resolved.provider !== "local" &&
+        resolved.provider !== "download" &&
+        (resolved.provider !== "cache" || Boolean(result.error && isSkippableError(result.error)))
+      ) {
+        if (resolved.provider === "cache") retry.skipCache = true;
+        continue;
+      }
+      const canRetry =
+        !result.ok &&
+        (resolved.provider === "download" ||
+          (verify &&
+            (result.error === ErrorCode.NETWORK_ERROR ||
+              result.error === ErrorCode.NETWORK_TIMEOUT)) ||
+          (result.error !== ErrorCode.NETWORK_ERROR &&
+            result.error !== ErrorCode.NETWORK_TIMEOUT &&
+            (retryOnAnyFailure || Boolean(result.error && isSkippableError(result.error))))) &&
+        markRetryableSourceFailure(resolved, retry);
+      if (canRetry) continue;
+      return { status: "loaded", result, resolved };
     }
-    if (
-      result.ok &&
-      resolved.pluginId &&
-      (resolved.provider === "plugin" || Boolean(resolved.verifiedQuality))
-    ) {
-      usePluginsStore().recordMusicSuccess(resolved.pluginId);
-    }
-    if (!result.ok) lastFailure = { status: "loaded", result, resolved };
-    if (useFallback) return { status: "loaded", result, resolved };
-    // 预载 URL 可能已经过期，非本地来源失败后重新解析一次最新地址
-    if (
-      usingInitial &&
-      !result.ok &&
-      resolved.provider !== "local" &&
-      resolved.provider !== "download" &&
-      (resolved.provider !== "cache" || Boolean(result.error && isSkippableError(result.error)))
-    ) {
-      if (resolved.provider === "cache") retry.skipCache = true;
-      continue;
-    }
-    const canRetry =
-      !result.ok &&
-      (resolved.provider === "download" ||
-        (verify &&
-          (result.error === ErrorCode.NETWORK_ERROR ||
-            result.error === ErrorCode.NETWORK_TIMEOUT)) ||
-        (result.error !== ErrorCode.NETWORK_ERROR &&
-          result.error !== ErrorCode.NETWORK_TIMEOUT &&
-          (retryOnAnyFailure || Boolean(result.error && isSkippableError(result.error))))) &&
-      markRetryableSourceFailure(resolved, retry);
-    if (canRetry) continue;
-    if (!result.ok && fallback) {
-      useFallback = true;
-      continue;
-    }
-    return { status: "loaded", result, resolved };
+  } finally {
+    if (sourceSelectionAbort === abort) sourceSelectionAbort = undefined;
+    if (shouldContinue()) useStatusStore().trackLoading = false;
   }
 };
 
@@ -586,10 +551,7 @@ const loadTrack = async (
     }
   } finally {
     if (myToken === trackToken) {
-      const status = useStatusStore();
-      if (shouldSkip || status.state !== "playing") {
-        status.trackLoading = false;
-      }
+      useStatusStore().trackLoading = false;
     }
   }
   if (shouldSkip) await skipOnFailure(myToken, () => trackToken, autoPlay);
@@ -602,6 +564,10 @@ const loadTrack = async (
  * @returns 是否完成（成功或被更新的加载接管）；解析/加载失败返回 false，调用方据此决定是否跳曲
  */
 export const reloadCurrentTrack = async (forcePlay?: boolean): Promise<boolean> => {
+  if (isAndroid) {
+    await invokeAndroid("android:reload", forcePlay);
+    return true;
+  }
   const media = useMediaStore();
   const track = media.track;
   if (!track || track.source === "local") return false;
@@ -695,6 +661,10 @@ let pendingPlayAfterRestore = false;
 
 /** 恢复播放 */
 export const play = async (): Promise<void> => {
+  if (isAndroid) {
+    await window.api.player.play();
+    return;
+  }
   const status = useStatusStore();
   if (isRestoringLastTrack) {
     pendingPlayAfterRestore = true;
@@ -756,6 +726,10 @@ export const togglePlay = (): void => {
 
 /** 暂停播放 */
 export const pause = async (): Promise<void> => {
+  if (isAndroid) {
+    await window.api.player.pause();
+    return;
+  }
   pauseToken++;
   const status = useStatusStore();
   const prev = status.state;
@@ -770,6 +744,7 @@ export const pause = async (): Promise<void> => {
 
 /** 作废在途加载和交接，防止迟到响应覆盖用户的新操作。 */
 export const invalidatePlaybackOperation = (): number => {
+  sourceSelectionAbort?.abort();
   loadToken++;
   useStatusStore().transitioning = false;
   return ++trackToken;
@@ -777,6 +752,10 @@ export const invalidatePlaybackOperation = (): number => {
 
 /** 停止播放并重置进度 */
 export const stop = async (): Promise<void> => {
+  if (isAndroid) {
+    await window.api.player.stop();
+    return;
+  }
   const token = invalidatePlaybackOperation();
   invalidateNextTrackPreload();
   const status = useStatusStore();
@@ -821,6 +800,10 @@ export const isSeeking = (): boolean => seekTarget !== null;
  * @param restartRound - 是否为单曲循环开启新的统计轮次
  */
 export const seek = async (posMs: number, restartRound = false): Promise<void> => {
+  if (isAndroid) {
+    await window.api.player.seek(posMs, restartRound);
+    return;
+  }
   const status = useStatusStore();
   // 歌曲加载中 seek 无意义：引擎此刻没有可 seek 的解码线程，
   // 且 seekTarget 残留会让加载完成后的 position 推送被持续丢弃
@@ -981,6 +964,15 @@ export const playFrom = async (
   { startIndex, context }: PlayFromOptions = {},
 ): Promise<void> => {
   if (items.length === 0) return;
+  if (isAndroid) {
+    await invokeAndroid(
+      "android:replaceQueue",
+      items.map((track) => ({ track, context })),
+      startIndex ?? 0,
+      true,
+    );
+    return;
+  }
   const status = useStatusStore();
   const media = useMediaStore();
   // 退出特殊模式
@@ -1073,6 +1065,16 @@ export const saveTrackTags = async (edits: TagEditRequest[]): Promise<TagWriteOu
  */
 export const playHeartMode = async (tracks: readonly Track[]): Promise<void> => {
   if (tracks.length === 0) return;
+  if (isAndroid) {
+    await invokeAndroid(
+      "android:replaceQueue",
+      tracks.map((track) => ({ track })),
+      0,
+      true,
+      "heart",
+    );
+    return;
+  }
   const status = useStatusStore();
   queue.setQueue(tracks);
   status.playIndex = 0;
@@ -1086,6 +1088,10 @@ export const playHeartMode = async (tracks: readonly Track[]): Promise<void> => 
 
 /** 退出心动模式，保留当前队列继续播放 */
 export const exitHeartMode = (): void => {
+  if (isAndroid) {
+    void invokeAndroid("android:exitHeart").catch(console.error);
+    return;
+  }
   useStatusStore().heartMode = false;
 };
 
@@ -1095,6 +1101,7 @@ export const exitHeartMode = (): void => {
  * @returns 是否成功进入并开始播放
  */
 export const playPersonalFm = async (options?: PersonalFmOptions): Promise<boolean> => {
+  if (isAndroid) return invokeAndroid("android:startFm", options ?? useStatusStore().fmOptions);
   const status = useStatusStore();
   const track = await fm.start(options);
   if (!track) return false;
@@ -1109,6 +1116,7 @@ export const playPersonalFm = async (options?: PersonalFmOptions): Promise<boole
  * 标记当前私人 FM 曲目为不喜欢并切到下一首
  */
 export const dislikeFmTrack = async (): Promise<void> => {
+  if (isAndroid) return invokeAndroid("android:dislikeFm");
   if (!useStatusStore().fmMode) return;
   const playedSec = Math.max(0, Math.round(playback.getCurrentTime() / 1000));
   const next = await fm.dislikeCurrent(playedSec);
@@ -1120,6 +1128,7 @@ export const dislikeFmTrack = async (): Promise<void> => {
  * @param autoPlay - 是否自动播放
  */
 export const nextTrack = async (autoPlay = true): Promise<void> => {
+  if (isAndroid) return invokeAndroid("android:next", autoPlay);
   const status = useStatusStore();
   // 私人 FM
   if (status.fmMode) {
@@ -1263,6 +1272,7 @@ export const trySmartTransition = async (
  * @param index - 队列位置
  */
 export const playAtIndex = async (index: number): Promise<void> => {
+  if (isAndroid) return invokeAndroid("android:playAt", index);
   const status = useStatusStore();
   if (index < 0 || index >= queue.queueLength.value) return;
   if (index === status.playIndex) {
@@ -1277,6 +1287,7 @@ export const playAtIndex = async (index: number): Promise<void> => {
 
 /** 播放上一首，首位时回绕到末尾 */
 export const prevTrack = async (): Promise<void> => {
+  if (isAndroid) return invokeAndroid("android:prev");
   const status = useStatusStore();
   if (status.fmMode) return;
   if (queue.queueLength.value === 0) return;
@@ -1310,6 +1321,10 @@ const syncPlayMode = (): void => {
  * @param mode - list（列表循环）、one（单曲循环）
  */
 export const setRepeatMode = (mode: RepeatMode): void => {
+  if (isAndroid) {
+    void invokeAndroid("android:setRepeat", mode).catch(console.error);
+    return;
+  }
   const status = useStatusStore();
   if (status.repeatMode === mode) return;
   status.repeatMode = mode;
@@ -1336,6 +1351,10 @@ export const toggleShuffleMode = (): void => {
  * @param mode - off（顺序）、on（随机）
  */
 export const setShuffleMode = (mode: ShuffleMode): void => {
+  if (isAndroid) {
+    void invokeAndroid("android:setShuffle", mode).catch(console.error);
+    return;
+  }
   const status = useStatusStore();
   // 心动模式下忽略
   if (status.heartMode) return;
@@ -1363,6 +1382,7 @@ export const setShuffleMode = (mode: ShuffleMode): void => {
  * @param index - 要移除的队列位置
  */
 export const removeFromQueue = async (index: number): Promise<void> => {
+  if (isAndroid) return invokeAndroid("android:removeFromQueue", index);
   const status = useStatusStore();
   if (index < 0 || index >= queue.queueLength.value) return;
   const isCurrentPlaying = index === status.playIndex;
@@ -1414,6 +1434,11 @@ export const insertToQueue = (
   afterIndex?: number,
   context?: PlaybackContext,
 ): number => {
+  if (isAndroid) {
+    const index = afterIndex ?? useStatusStore().playIndex + 1;
+    void invokeAndroid("android:insertAt", item, index, context).catch(console.error);
+    return index;
+  }
   const status = useStatusStore();
   const len = queue.queue.value.length;
   const raw = afterIndex ?? status.playIndex + 1;
@@ -1447,6 +1472,10 @@ export const insertManyToQueue = (
   context?: PlaybackContext,
 ): number => {
   if (items.length === 0) return 0;
+  if (isAndroid) {
+    void invokeAndroid("android:addToQueue", items, position, context).catch(console.error);
+    return items.length;
+  }
   const status = useStatusStore();
   const seen = new Set(queue.queue.value.map((track) => track.id));
   const fresh: Track[] = [];
@@ -1466,6 +1495,7 @@ export const insertManyToQueue = (
  * 如果是当前正在播放的歌曲则继续播放，不重新加载
  */
 export const playNow = async (item: Track, context?: PlaybackContext): Promise<void> => {
+  if (isAndroid) return invokeAndroid("android:playTrack", item, context);
   const status = useStatusStore();
   const media = useMediaStore();
   // 同一首歌且已成功加载
@@ -1531,6 +1561,10 @@ export const playFiles = async (filePaths: string[]): Promise<void> => {
  * @param toIndex - 目标位置
  */
 export const moveInQueue = (fromIndex: number, toIndex: number): void => {
+  if (isAndroid) {
+    void invokeAndroid("android:moveInQueue", fromIndex, toIndex).catch(console.error);
+    return;
+  }
   const status = useStatusStore();
   queue.moveInQueue(fromIndex, toIndex);
   // 根据移动方向调整 playIndex
@@ -1551,6 +1585,10 @@ let initialized = false;
 export const initPlayer = async (): Promise<void> => {
   if (initialized) return;
   initialized = true;
+  if (isAndroid) {
+    unsubscribe = await initAndroidPlayback();
+    return;
+  }
   console.log("[player] init");
   // 先从主进程同步后端配置，确保 system 设置可用
   const settings = useSettingsStore();
@@ -1631,6 +1669,7 @@ export const initPlayer = async (): Promise<void> => {
 
 /** 恢复上次播放状态 */
 export const restoreLastTrack = async (): Promise<void> => {
+  if (isAndroid) return;
   const status = useStatusStore();
   const settings = useSettingsStore();
   const media = useMediaStore();
@@ -1680,6 +1719,11 @@ export const restoreLastTrack = async (): Promise<void> => {
 
 /** 清理事件订阅 */
 export const disposePlayer = (): void => {
+  if (isAndroid) {
+    unsubscribe?.();
+    unsubscribe = null;
+    return;
+  }
   disposeNextTrackPreload();
   stopQueueIndexSync?.();
   stopQueueIndexSync = null;

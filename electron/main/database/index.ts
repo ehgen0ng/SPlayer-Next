@@ -19,10 +19,16 @@ export const getDb = (): Database.Database => {
 /** 数据库是否已打开 */
 export const isDbOpen = (): boolean => db !== null;
 
-/** 初始化数据库：打开连接、启用 WAL、建表建索引、执行迁移 */
-export const initDatabase = (): void => {
+/**
+ * 打开数据库、启用 WAL 并执行现有表结构迁移
+ * @param options - 平台可提供原生绑定，其余行为沿用驱动默认值
+ */
+export const initDatabase = (
+  options?: Omit<Database.Options, "nativeBinding"> & { nativeBinding?: string | object },
+): void => {
   fs.mkdirSync(databaseDir, { recursive: true });
-  db = new Database(dbPath);
+  // 驱动 v13 支持已加载的绑定对象，独立的 @types v9 尚未补齐该声明
+  db = new Database(dbPath, options as Database.Options);
   db.pragma("journal_mode = WAL");
 
   // lyric_cache 是纯缓存表：如果老 DB 里的 schema 跟当前代码期望的不一致，直接丢重建

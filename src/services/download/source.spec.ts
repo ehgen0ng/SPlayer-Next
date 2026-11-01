@@ -81,6 +81,17 @@ beforeEach(() => {
 });
 
 describe("下载复用播放选源规则", () => {
+  it("QQ 官方试听片段不能作为完整歌曲下载", async () => {
+    mocks.plugins = [];
+    mocks.official.mockResolvedValue({
+      available: true,
+      url: "https://stream.qqmusic.qq.com/RS02trial.mp3",
+      isTrial: true,
+    });
+    expect(await resolveDownloadSource(track, "hq", false)).toBeNull();
+    expect(mocks.probe).not.toHaveBeenCalled();
+  });
+
   it("比较全部无损候选后选择码率最高者，保留原始六声道参数", async () => {
     const result = await resolveDownloadSource(track, "lossless", false);
     expect(result).toEqual({
@@ -99,16 +110,13 @@ describe("下载复用播放选源规则", () => {
     expect(mocks.resolve).toHaveBeenCalledTimes(3);
   });
 
-  it("Hi-Res 返回普通无损时，降一级重新尝试所有插件并比较码率", async () => {
+  it("Hi-Res 返回普通无损时，降级复用全部已达标结果", async () => {
     const result = await resolveDownloadSource(track, "hi-res", false);
     expect(result?.url).toBe("https://music.example/b");
     expect(mocks.resolve.mock.calls.map(([args]) => [args.pluginId, args.quality])).toEqual([
       ["a", "hi-res"],
       ["b", "hi-res"],
       ["c", "hi-res"],
-      ["a", "lossless"],
-      ["b", "lossless"],
-      ["c", "lossless"],
     ]);
   });
 
@@ -179,14 +187,14 @@ describe("下载复用播放选源规则", () => {
     expect(mocks.probe).not.toHaveBeenCalled();
   });
 
-  it("取消后停止下一插件尝试，不采用迟到探测结果", async () => {
+  it("取消后不降级重试，不采用本轮并发候选的迟到结果", async () => {
     const controller = new AbortController();
     mocks.probe.mockImplementationOnce(async () => {
       controller.abort();
       return { success: true, data: hires };
     });
     expect(await resolveDownloadSource(track, "hi-res", false, controller.signal)).toBeNull();
-    expect(mocks.resolve).toHaveBeenCalledOnce();
+    expect(mocks.resolve).toHaveBeenCalledTimes(3);
     expect(mocks.official).not.toHaveBeenCalled();
   });
 

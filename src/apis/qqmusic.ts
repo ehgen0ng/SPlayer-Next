@@ -1,8 +1,9 @@
+import { callPlatformApi } from "@/apis/transport";
 /**
  * QM API 渲染端
  *
  * 用 Proxy 代理所有接口到主进程：`qqmusic.search({keywords})` 等于
- * `window.api.apis.call("qqmusic", "search", {keywords})`。
+ * `callPlatformApi("qqmusic", "search", {keywords})`。
  *
  * 调用约定：成功 → 返回 data；失败 → 抛 Error。
  */
@@ -18,7 +19,7 @@ export const qqmusicCall = async <T = unknown>(
   name: string,
   params?: Record<string, unknown>,
 ): Promise<T> => {
-  const res: ApiCallResponse = await window.api.apis.call("qqmusic", name, params);
+  const res: ApiCallResponse = await callPlatformApi("qqmusic", name, params);
   if (!res.ok) throw new Error(res.error);
   return res.data as T;
 };

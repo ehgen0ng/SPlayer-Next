@@ -1,19 +1,6 @@
-import { app } from "electron";
-import { existsSync, mkdirSync } from "node:fs";
+import { getUserDataPath } from "@main/runtime/application";
 import path from "node:path";
 import type { AutoMixComponentId } from "@shared/types/automix";
-
-/**
- * 便携模式：将 userData 重定向到 exe 同级 UserData 目录
- *
- * electron-builder 的便携版会注入 PORTABLE_EXECUTABLE_DIR，此时把整个 userData
- * （含 Chromium 缓存与下方 app-data）落到 exe 同级目录，实现免安装、可整体拷贝
- */
-if (process.env.PORTABLE_EXECUTABLE_DIR) {
-  const portableUserData = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "UserData");
-  if (!existsSync(portableUserData)) mkdirSync(portableUserData, { recursive: true });
-  app.setPath("userData", portableUserData);
-}
 
 /**
  * 统一数据根目录
@@ -22,7 +9,7 @@ if (process.env.PORTABLE_EXECUTABLE_DIR) {
  * 与 Chromium 自建的 Cache/ GPUCache/ 等隔开，便于备份与后续便携版整体迁移。
  * 仅需改这一处即可整体改变数据落点（如便携版指向 exe 同级目录）。
  */
-export const dataRoot = path.join(app.getPath("userData"), "app-data");
+export const dataRoot = path.join(getUserDataPath(), "app-data");
 
 /** 配置目录：settings.json / streaming.json / lastfm.json */
 export const configDir = path.join(dataRoot, "config");

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   LegacyPlaylistRecord,
   PlaylistCreateInput,
@@ -100,7 +101,7 @@ export const createPlaylist = (input: PlaylistCreateInput): PlaylistSummary => {
   if (!title) throw new Error("歌单名称不能为空");
   if (input.type !== "local") throw new Error("歌单类型无效");
   const now = Date.now();
-  const id = `pl_${crypto.randomUUID()}`;
+  const id = `pl_${randomUUID()}`;
   getDb()
     .prepare(
       `INSERT INTO playlists

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isAndroid } from "@/platform";
 import { PLATFORM_SHORT_NAME } from "@shared/types/platform";
 import type { SMenuItem } from "@/components/ui/SMenu.vue";
 import type { SSelectOption } from "@/components/ui/SSelect.vue";
@@ -371,7 +372,7 @@ watch(
 
 onMounted(() => {
   if (!playlistStore.initialized) playlistStore.load();
-  void downloadStore.init();
+  if (!isAndroid) void downloadStore.init();
 });
 </script>
 

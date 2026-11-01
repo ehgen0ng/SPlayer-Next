@@ -5,6 +5,7 @@ import type { PluginInfo } from "@shared/types/plugin";
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   load: vi.fn(),
+  probe: vi.fn(),
   play: vi.fn(),
   pause: vi.fn(),
   seek: vi.fn(),
@@ -104,6 +105,7 @@ beforeEach(async () => {
     api: {
       player: {
         load: mocks.load,
+        probeSource: mocks.probe,
         play: mocks.play,
         pause: mocks.pause,
         seek: mocks.seek,
@@ -188,6 +190,10 @@ describe("插件优先按实际解码音质换源", () => {
       url: `https://plugin/${pluginId}.flac`,
       quality: "hi-res",
     }));
+    mocks.probe.mockImplementation(async (url: string) => ({
+      success: true,
+      data: qualities[/\/([abc])\.flac$/.exec(url)?.[1] ?? "official"],
+    }));
     mocks.load.mockImplementation(async (url: string) => {
       const id = /\/([abc])\.flac$/.exec(url)?.[1] ?? "official";
       const quality = qualities[id];
@@ -209,22 +215,59 @@ describe("插件优先按实际解码音质换源", () => {
         "b",
         "c",
       ]);
-      expect(mocks.load.mock.calls.map(([url]) => url)).toEqual([
-        "https://plugin/a.flac",
-        "https://plugin/b.flac",
+      expect(mocks.probe).toHaveBeenCalledTimes(3);
+      expect(mocks.load).toHaveBeenCalledExactlyOnceWith(
         "https://plugin/c.flac",
-        "https://plugin/c.flac",
-      ]);
+        expect.objectContaining({ autoPlay: false }),
+      );
       expect(mocks.load.mock.calls.every(([, options]) => options.autoPlay === false)).toBe(true);
       expect(mocks.play).toHaveBeenCalledOnce();
       expect(mocks.play.mock.invocationCallOrder[0]).toBeGreaterThan(
-        mocks.load.mock.invocationCallOrder[1]!,
+        mocks.load.mock.invocationCallOrder[0]!,
       );
       expect(media.detail?.quality.codec).toBe("flac");
       expect(mocks.warning).not.toHaveBeenCalled();
       expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("c");
     },
   );
+
+  it("比较多个候选和等待开始播放时只显示一段连续加载", async () => {
+    const { watch } = await import("vue");
+    const changes: boolean[] = [];
+    const stopWatching = watch(
+      () => status.trackLoading,
+      (value) => changes.push(value),
+      {
+        flush: "sync",
+      },
+    );
+    let finish!: (value: unknown) => void;
+    mocks.play.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    try {
+      const loading = player.playAtIndex(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.load).toHaveBeenCalledOnce();
+      expect(status.trackLoading).toBe(true);
+      expect(changes).toEqual([true]);
+      finish({ success: true });
+      await loading;
+      expect(changes).toEqual([true, false]);
+      expect(status.state).toBe("playing");
+    } finally {
+      stopWatching();
+    }
+  });
+
+  it("换源请求异常结束时清除加载状态", async () => {
+    mocks.load.mockRejectedValueOnce(new Error("加载请求中断"));
+    await expect(player.reloadCurrentTrack()).rejects.toThrow("加载请求中断");
+    expect(status.trackLoading).toBe(false);
+  });
 
   it("Hi-Res 请求按真实档位过滤，所有候选比较完成后才播放", async () => {
     mocks.playerSettings.songLevel = "hi-res";
@@ -351,17 +394,15 @@ describe("插件优先按实际解码音质换源", () => {
     mocks.playerSettings.songLevel = "hi-res";
     qualities.c = { ...mp3, bitRate: 320000 };
     await player.playAtIndex(1);
-    expect(mocks.load.mock.calls.map(([url]) => url)).toEqual([
-      "https://plugin/a.flac",
-      "https://plugin/b.flac",
-      "https://plugin/c.flac",
-      newUrl,
-      "https://plugin/a.flac",
-      "https://plugin/b.flac",
-      "https://plugin/c.flac",
-      "https://plugin/b.flac",
+    expect(mocks.load.mock.calls.map(([url]) => url)).toEqual(["https://plugin/b.flac"]);
+    expect(mocks.probe).toHaveBeenCalledTimes(4);
+    expect(mocks.pluginResolve.mock.calls.map(([args]) => [args.pluginId, args.quality])).toEqual([
+      ["a", "hi-res"],
+      ["b", "hi-res"],
+      ["c", "hi-res"],
+      ["a", "lossless"],
+      ["c", "lossless"],
     ]);
-    expect(mocks.pluginResolve).toHaveBeenCalledTimes(6);
     expect(mocks.play).toHaveBeenCalledOnce();
     expect(mocks.warning).toHaveBeenCalledExactlyOnceWith("player.qualityFallback");
     expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("b");
@@ -373,7 +414,7 @@ describe("插件优先按实际解码音质换源", () => {
     qualities.official = lossless;
     await player.playAtIndex(1);
     expect(status.currentSource).toBe(newUrl);
-    expect(mocks.load).toHaveBeenCalledTimes(5);
+    expect(mocks.load).toHaveBeenCalledOnce();
     expect(mocks.play).toHaveBeenCalledOnce();
     expect(mocks.warning).not.toHaveBeenCalled();
   });
@@ -452,14 +493,14 @@ describe("插件优先按实际解码音质换源", () => {
     );
     const loading = player.playAtIndex(1);
     await vi.advanceTimersByTimeAsync(0);
-    expect(mocks.load).toHaveBeenCalledOnce();
+    expect(mocks.load).not.toHaveBeenCalled();
     if (action === "暂停") await player.pause();
     else await player.stop();
     finish({ url: "https://plugin/b.flac" });
     await loading;
     expect(mocks.play).not.toHaveBeenCalled();
     expect(status.state).toBe(action === "暂停" ? "paused" : "stopped");
-    expect(mocks.load).toHaveBeenCalledTimes(action === "暂停" ? 4 : 1);
+    expect(mocks.load).toHaveBeenCalledTimes(action === "暂停" ? 1 : 0);
   });
 });
 

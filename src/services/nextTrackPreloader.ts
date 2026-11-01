@@ -5,7 +5,6 @@
 import type { Track } from "@shared/types/player";
 import type { ResolvedTrackSource } from "@/services/audioSource";
 import { resolveTrackSource } from "@/services/audioSource";
-import { selectAudioSource } from "@/services/audioSourceSelection";
 import { getQualityLevel } from "@/utils/quality";
 import { isPlatform } from "@shared/types/platform";
 import { getNextTrackCandidate } from "@/core/player/candidate";
@@ -66,6 +65,8 @@ const buildContextKey = (track: Track): string => {
     track.cueEndMs ?? "",
     settings.player.songLevel,
     settings.player.preferPluginSource,
+    settings.player.verifySourceArtist,
+    settings.player.verifySourceDuration,
     settings.player.transitionMode,
     settings.player.transitionPreference,
     ...(settings.player.transitionMode === "automix"
@@ -299,61 +300,22 @@ export const scheduleNextTrackPreload = (): void => {
         void preloadCover(candidateTrack.cover);
       }
       // 音源预拉取
-      const attemptedPlugins = new Set<string>();
       let source = await resolveTrackSource(candidateTrack, {
         silent: true,
         signal: abort.signal,
-        onPluginAttempt: (pluginId) => attemptedPlugins.add(pluginId),
       });
       if (token !== currentToken) return;
       if (!source) {
         invalidateNextTrackPreload();
         return;
       }
-      if (
-        settings.player.preferPluginSource &&
-        isPlatform(candidateTrack.source) &&
-        (source.provider === "plugin" || source.provider === "official")
-      ) {
-        let first: ResolvedTrackSource | null = source;
-        const selected = await selectAudioSource(
-          settings.player.songLevel,
-          async (attempt) => {
-            if (first) {
-              const initial = first;
-              first = null;
-              attemptedPlugins.forEach(attempt.onPluginAttempt);
-              return initial;
-            }
-            return resolveTrackSource(candidateTrack, {
-              ...attempt,
-              silent: true,
-              skipDownloaded: true,
-              skipCache: true,
-            });
-          },
-          (candidate) => candidate.source,
-          abort.signal,
-        );
-        if (token !== currentToken) return;
-        if (!selected) {
-          invalidateNextTrackPreload();
-          return;
-        }
-        source = { ...selected.source, verifiedQuality: selected.quality };
-        if (source.cacheRequest) {
-          const requestCache = source.cacheRequest;
-          const actualQuality = getQualityLevel(selected.quality);
-          source.cacheRequest = (preloadId, signal, _quality, progressive) =>
-            requestCache(preloadId, signal, actualQuality, progressive);
-        }
-      }
+
       cachedResult = { trackId: candidateTrack.id, source, contextKey };
       if (source.cacheRequest) {
         const cachedPath = await source.cacheRequest(
           id,
           abort.signal,
-          undefined,
+          source.verifiedQuality ? getQualityLevel(source.verifiedQuality) : undefined,
           isPlatform(candidateTrack.source),
         );
         if (token !== currentToken) return;
@@ -442,6 +404,8 @@ export const installNextTrackPreloadWatchers = (): void => {
       settings.system.cache.songCache.cacheStreaming,
       settings.player.songLevel,
       settings.player.preferPluginSource,
+      settings.player.verifySourceArtist,
+      settings.player.verifySourceDuration,
       settings.player.allowTrialPlay,
       status.playIndex,
       status.state,

@@ -8,6 +8,7 @@ import { isPlatform } from "@shared/types/platform";
 import { setDeviceVolume } from "@/services/deviceVolume";
 import { useStatusStore } from "@/stores/status";
 import AutoMixComponents from "@/components/settings/custom/AutoMixComponents.vue";
+import { isAndroid } from "@/platform";
 
 const playerCategory: SettingCategory = {
   id: "player",
@@ -109,6 +110,18 @@ const playerCategory: SettingCategory = {
           },
         },
         {
+          key: "verifySourceArtist",
+          type: "switch",
+          binding: { store: "settings", path: "player.verifySourceArtist" },
+          defaultValue: false,
+        },
+        {
+          key: "verifySourceDuration",
+          type: "switch",
+          binding: { store: "settings", path: "player.verifySourceDuration" },
+          defaultValue: true,
+        },
+        {
           key: "allowTrialPlay",
           type: "switch",
           binding: { store: "settings", path: "player.allowTrialPlay" },
@@ -121,6 +134,7 @@ const playerCategory: SettingCategory = {
           defaultValue: true,
           confirm: {
             when: (next) =>
+              !isAndroid &&
               Boolean(next) &&
               (!useSettingsStore().system.cache.songCache.enabled ||
                 !useSettingsStore().system.cache.songCache.cacheStreaming),
@@ -129,6 +143,7 @@ const playerCategory: SettingCategory = {
             type: "warning",
           },
           action: async (enabled) => {
+            if (isAndroid) return;
             if (!enabled) {
               useSettingsStore().player.transitionMode = "none";
               return;

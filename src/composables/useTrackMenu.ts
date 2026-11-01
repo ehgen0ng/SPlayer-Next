@@ -8,6 +8,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { usePluginsStore } from "@/stores/plugins";
 import { useStatusStore } from "@/stores/status";
 import { useDownloadStore } from "@/stores/download";
+import { isAndroid } from "@/platform";
 import { useCopyText } from "@/composables/useCopyText";
 import { toast } from "@/composables/useToast";
 import { buildDownloadQualityItems } from "@/composables/useDownload";
@@ -126,6 +127,7 @@ export const useTrackMenu = (
         icon: markRaw(IconDownload),
         separator: true,
         show:
+          !isAndroid &&
           !isLocal &&
           source !== "plugin" &&
           !!options.onDownload &&

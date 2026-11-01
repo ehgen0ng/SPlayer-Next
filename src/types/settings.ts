@@ -266,6 +266,10 @@ export interface PlayerSettings {
   songLevel: QualityLevel;
   /** 在线播放优先使用插件音源，失败时回退内置接口 */
   preferPluginSource: boolean;
+  /** 按音频标签排除歌手不符的插件音源 */
+  verifySourceArtist: boolean;
+  /** 排除实际时长与歌曲信息相差超过五秒的插件音源 */
+  verifySourceDuration: boolean;
   /** 允许完整音源不可用时播放试听片段 */
   allowTrialPlay: boolean;
   /** 时间显示格式 */

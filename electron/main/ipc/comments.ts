@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain } from "@main/runtime/ipc";
 import { getCommentSources, getMusicComments } from "@main/services/comments";
 import { coreLog } from "@main/utils/logger";
 import type { MusicCommentQuery, MusicCommentResponse } from "@shared/types/comment";

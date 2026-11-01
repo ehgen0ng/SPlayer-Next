@@ -42,7 +42,7 @@ declare global {
       player: PlayerApi;
       automix: AutoMixApi;
       system: {
-        installType: "nsis" | "portable" | "appx" | "dmg" | "appimage";
+        installType: "nsis" | "portable" | "appx" | "dmg" | "appimage" | "apk";
         platform: NodeJS.Platform;
         osInfo: {
           type: string;

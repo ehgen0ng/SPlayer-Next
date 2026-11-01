@@ -77,6 +77,14 @@ export interface AudioQuality {
   codec: string;
 }
 
+/** 音源实际音质与轻量身份信息，不携带封面或歌词 */
+export interface AudioSourceProbe extends AudioQuality {
+  /** 原文件歌手标签，缺失时不推断 */
+  artist?: string;
+  /** 实际时长，单位毫秒 */
+  duration?: number;
+}
+
 /**
  * 付费标记，遵循 NCM fee 规范
  * - 0: 免费
@@ -270,7 +278,7 @@ export interface IpcResponse<T = void> {
   error?: string;
 }
 
-/** 真实音频流与硬件输出信息 */
+/** 真实音频流与输出参数 */
 export interface AudioStreamInfo {
   /** 当前生效的音频输出设备名称 */
   deviceName: string;
@@ -286,8 +294,8 @@ export interface AudioStreamInfo {
   sourceSampleRate: number;
   /** 音源原始位深（bits） */
   sourceBits: number;
-  /** 是否发生了重采样（音源采样率 != 硬件输出采样率） */
-  isResampling: boolean;
+  /** 是否发生重采样，系统未公开最终输出格式时为 null */
+  isResampling: boolean | null;
   /** 均衡器是否启用 */
   isEqualizerActive: boolean;
   /** 变速变调是否激活 */
@@ -384,7 +392,7 @@ export interface PlayerApi {
    * @param source - 本地路径或 HTTP 地址
    * @returns 实际音质信息
    */
-  probeSource: (source: string) => Promise<IpcResponse<AudioQuality>>;
+  probeSource: (source: string) => Promise<IpcResponse<AudioSourceProbe>>;
   /** 设置 FFT 频谱推送 */
   setFftEnabled: (enabled: boolean) => Promise<IpcResponse>;
   /** 获取 FFT 频谱数据 */

@@ -1,0 +1,86 @@
+apply plugin: 'com.android.application'
+
+def packageJson = new groovy.json.JsonSlurper().parse(file('../../package.json'))
+def releaseStore = System.getenv('ANDROID_KEYSTORE_PATH')
+def versionParts = packageJson.version.tokenize('.-')
+def defaultVersionCode = versionParts[0].toInteger() * 10000000 + versionParts[1].toInteger() * 100000 + versionParts[2].toInteger() * 1000
+def channelCode = versionParts.size() > 3 ? ['alpha': 100, 'beta': 400, 'fork': 700][versionParts[3]] : 999
+if (channelCode == null) throw new GradleException('未支持的安卓版本通道，请使用 alpha、beta、fork 或正式版本')
+defaultVersionCode += channelCode
+if (versionParts.size() > 4) {
+    int sequence = versionParts[4].toInteger()
+    if (sequence < 0 || sequence >= 100) throw new GradleException('安卓预发布序号必须小于 100')
+    defaultVersionCode += sequence
+}
+
+android {
+    namespace 'top.imsyy.splayer.car'
+    compileSdk rootProject.ext.compileSdkVersion
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'top.imsyy.splayer.car'
+        minSdk rootProject.ext.minSdkVersion
+        targetSdk rootProject.ext.targetSdkVersion
+        versionCode Integer.parseInt(System.getenv('ANDROID_VERSION_CODE') ?: defaultVersionCode.toString())
+        versionName packageJson.version
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild {
+            cmake { arguments '-DANDROID_STL=c++_shared', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON' }
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (releaseStore) {
+                storeFile file(releaseStore)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (releaseStore) signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    buildFeatures { buildConfig true }
+    sourceSets.main.res.srcDir layout.buildDirectory.dir('generated/splayer-res')
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+    packaging { jniLibs { useLegacyPackaging true } }
+}
+
+// 直接复用根项目图标，避免维护第二份图片源文件
+tasks.register('copyAppIcon', Copy) {
+    from('../../public/icons/favicon-256x256.png')
+    into layout.buildDirectory.dir('generated/splayer-res/drawable-nodpi')
+    rename { 'app_icon.png' }
+}
+tasks.named('preBuild').configure { dependsOn 'copyAppIcon' }
+
+dependencies {
+    implementation project(':capacitor-android')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation 'androidx.media3:media3-exoplayer:1.11.1'
+    implementation 'androidx.media3:media3-inspector:1.11.1'
+    implementation 'androidx.media3:media3-session:1.11.1'
+    implementation 'androidx.media3:media3-database:1.11.1'
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+}

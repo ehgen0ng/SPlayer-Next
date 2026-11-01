@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from "vue-router";
+import { supportsRoute } from "@/platform";
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -123,5 +124,7 @@ const router = createRouter({
     },
   ],
 });
+
+router.beforeEach((to) => supportsRoute(to.path) || "/");
 
 export default router;

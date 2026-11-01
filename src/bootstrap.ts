@@ -1,5 +1,8 @@
 /** 显示启动层并在首屏就绪后移交播放控制，避免静态导入 Vue 或业务模块 */
 export const bootstrap = async (): Promise<void> => {
+  if (import.meta.env.VITE_PLATFORM === "android") {
+    await (await import("./platform/android")).installAndroidBridge();
+  }
   const splash = document.getElementById("app-loading")!;
   const root = document.getElementById("app")!;
   const logo = splash.querySelector<HTMLImageElement>(".splash-logo")!;

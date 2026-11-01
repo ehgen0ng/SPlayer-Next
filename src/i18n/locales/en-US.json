@@ -585,6 +585,7 @@
   },
   "quality": {
     "outputInfo": "Output Information",
+    "androidSystemOutput": "Managed by Android",
     "fileSection": "File Information",
     "fileSize": "File Size",
     "unknown": "Unknown",
@@ -950,6 +951,14 @@
     "allowTrialPlay": {
       "label": "Allow Trial Playback",
       "description": "Play trial clips returned by the platform only when full sources and plugins are unavailable"
+    },
+    "verifySourceArtist": {
+      "label": "Verify source artist",
+      "description": "Reject plugin sources with conflicting artist tags; keep sources without tags. Aliases may cause false rejections"
+    },
+    "verifySourceDuration": {
+      "label": "Verify source duration",
+      "description": "Reject plugin sources whose duration differs by over 5 seconds; keep sources with unknown duration. Different editions may be excluded"
     },
     "preloadNextTrack": {
       "label": "Preload next track",

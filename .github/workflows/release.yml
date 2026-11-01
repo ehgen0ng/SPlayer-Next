@@ -26,6 +26,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  android:
+    uses: ./.github/workflows/android.yml
+    with:
+      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      release: true
+    secrets: inherit
+
   # 各平台/架构在对应的原生 runner 上独立构建
   build:
     name: Build on ${{ matrix.name }}
@@ -167,7 +174,7 @@ jobs:
   # 合并多架构更新清单并创建 GitHub 草稿 Release
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write

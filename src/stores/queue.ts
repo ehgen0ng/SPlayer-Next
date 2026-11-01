@@ -1,5 +1,7 @@
 import localforage from "localforage";
 import type { PlaybackContext, PlaybackQueueItem, Track } from "@shared/types/player";
+import { isAndroid } from "@/platform";
+import { invokeAndroid } from "@/platform/android";
 
 /** 持久化存储实例 */
 const db = localforage.createInstance({ name: "splayer", storeName: "queue" });
@@ -38,6 +40,7 @@ export const queueLength = computed(() => queue.value.length);
 
 /** 保存当前播放列表数据 */
 const save = (): void => {
+  if (isAndroid) return;
   db.setItem("playList", toRaw(queueEntries.value)).catch(console.error);
   db.setItem("originalPlayList", toRaw(originalQueue.value)).catch(console.error);
 };
@@ -214,6 +217,10 @@ export const moveInQueue = (fromIndex: number, toIndex: number): void => {
  * 清空队列和洗牌备份
  */
 export const clearQueue = (): void => {
+  if (isAndroid) {
+    void invokeAndroid("android:clearQueue").catch(console.error);
+    return;
+  }
   queueEntries.value = [];
   originalQueue.value = null;
   save();

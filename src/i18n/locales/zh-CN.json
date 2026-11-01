@@ -585,6 +585,7 @@
   },
   "quality": {
     "outputInfo": "输出信息",
+    "androidSystemOutput": "由 Android 系统管理",
     "fileSection": "文件信息",
     "fileSize": "文件大小",
     "unknown": "未知",
@@ -950,6 +951,14 @@
     "allowTrialPlay": {
       "label": "允许播放试听",
       "description": "完整音源和插件都不可用时，允许播放平台返回的试听片段"
+    },
+    "verifySourceArtist": {
+      "label": "校验音源歌手",
+      "description": "排除音频标签中歌手不符的插件音源，缺少标签时保留；别名可能导致误判"
+    },
+    "verifySourceDuration": {
+      "label": "校验音源时长",
+      "description": "排除实际时长相差超过 5 秒的插件音源，未知时长时保留；不同版本可能被排除"
     },
     "preloadNextTrack": {
       "label": "预载下一首歌曲",

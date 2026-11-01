@@ -2,6 +2,7 @@ import { dialog } from "@/composables/useDialog";
 import { useSettingsStore } from "@/stores/settings";
 import SRadio from "@/components/ui/SRadio.vue";
 import SCheckbox from "@/components/ui/SCheckbox.vue";
+import { isAndroid } from "@/platform";
 
 /** 主窗口控制 */
 export const useWindowControls = () => {
@@ -10,7 +11,7 @@ export const useWindowControls = () => {
 
   const isMaximized = ref(false);
   const isFullscreen = ref(false);
-  const isBorderless = computed(() => settings.system.system.borderlessWindow);
+  const isBorderless = computed(() => !isAndroid && settings.system.system.borderlessWindow);
 
   const minimize = (): void => window.api.window.minimize();
   const toggleMaximize = (): void => window.api.window.toggleMaximize();
@@ -63,6 +64,7 @@ export const useWindowControls = () => {
   let offFs: (() => void) | null = null;
 
   onMounted(() => {
+    if (isAndroid) return;
     window.api.window.isMaximized().then((m) => (isMaximized.value = m));
     window.api.window.isFullscreen().then((f) => (isFullscreen.value = f));
     offMax = window.api.window.onMaximizeChange((m) => (isMaximized.value = m));

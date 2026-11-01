@@ -10,6 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  android:
+    uses: ./.github/workflows/android.yml
+
   check:
     runs-on: ubuntu-latest
     steps:
@@ -31,6 +34,6 @@ jobs:
         run: pnpm lint
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: pnpm typecheck && pnpm typecheck:android
         env:
           SKIP_NATIVE_BUILD: true

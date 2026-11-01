@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { EventEmitter } from "node:events";
-import { app } from "electron";
+import { getAppVersion, getBundledPluginsPath } from "@main/runtime/application";
 import { writeFileSync as atomicWriteSync } from "atomically";
 import type {
   PlaybackEventKind,
@@ -166,9 +166,7 @@ class PluginRegistry extends EventEmitter {
     });
     const stored = readStored();
     if (!stored.bundledInitialized) {
-      const bundledDir = app.isPackaged
-        ? path.join(process.resourcesPath, "plugins")
-        : path.join(app.getAppPath(), "resources", "plugins");
+      const bundledDir = getBundledPluginsPath();
       for (const { id, sourceUrl } of BUNDLED_PLUGINS) {
         if (stored.plugins[id]) {
           stored.plugins[id].sourceUrl ??= sourceUrl;
@@ -610,7 +608,7 @@ class PluginRegistry extends EventEmitter {
       pluginId: id,
       apiLevel: HOST_API_LEVEL,
       locale: getLocale(),
-      appVersion: app.getVersion(),
+      appVersion: getAppVersion(),
       userSettings,
       source: rt.source,
       scriptInfo: {
