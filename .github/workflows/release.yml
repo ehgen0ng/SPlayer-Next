@@ -30,7 +30,7 @@ jobs:
   build:
     name: Build on ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: ${{ matrix.target == 'android-arm64-v8a' && 180 || 360 }}
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
