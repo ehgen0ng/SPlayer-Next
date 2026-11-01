@@ -101,7 +101,7 @@ pnpm typecheck:android
 
 ## 自动构建
 
-`.github/workflows/android.yml` 提供共用安卓构建流程，产物名为 `SPlayer-Next-android-arm64-v8a`。`ci.yml` 与 `dev.yml` 构建调试 APK，`release.yml` 统一收集桌面与安卓产物；APK 不进入 Electron 自动更新清单。
+`ci.yml` 与 `dev.yml` 构建调试 APK，`release.yml` 构建签名 APK 并随桌面安装包一起发布。构建产物名为 `SPlayer-Next-android-arm64-v8a`，APK 不进入桌面自动更新清单。
 
 ## 兼容性
 

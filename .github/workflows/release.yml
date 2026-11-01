@@ -26,17 +26,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  android:
-    uses: ./.github/workflows/android.yml
-    with:
-      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-      release: true
-    secrets: inherit
-
   # 各平台/架构在对应的原生 runner 上独立构建
   build:
     name: Build on ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.target == 'android-arm64-v8a' && 180 || 360 }}
     strategy:
       fail-fast: false
       matrix:
@@ -59,6 +53,9 @@ jobs:
           - name: Linux arm64
             runner: ubuntu-24.04-arm
             target: linux-arm64
+          - name: Android arm64-v8a
+            runner: ubuntu-latest
+            target: android-arm64-v8a
     steps:
       - name: Check out git repository
         uses: actions/checkout@v5
@@ -75,9 +72,11 @@ jobs:
           cache: pnpm
 
       - name: Setup Rust toolchain
+        if: matrix.target != 'android-arm64-v8a'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Rust Cache
+        if: matrix.target != 'android-arm64-v8a'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
@@ -112,7 +111,7 @@ jobs:
 
       # Linux: 安装系统构建/打包依赖
       - name: 安装系统依赖 (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.target != 'android-arm64-v8a'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
@@ -135,6 +134,7 @@ jobs:
 
       # 仅构建本机架构
       - name: Build ${{ matrix.name }}
+        if: matrix.target != 'android-arm64-v8a'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -165,7 +165,20 @@ jobs:
               ;;
           esac
 
+      - name: Build Android APK
+        if: matrix.target == 'android-arm64-v8a'
+        uses: ./.github/actions/build-android
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          release: "true"
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
       - name: Upload Artifact
+        if: matrix.target != 'android-arm64-v8a'
         uses: actions/upload-artifact@v7
         with:
           name: SPlayer-Next-${{ matrix.name }}
@@ -174,7 +187,7 @@ jobs:
   # 合并多架构更新清单并创建 GitHub 草稿 Release
   release:
     name: Create GitHub Release
-    needs: [build, android]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write

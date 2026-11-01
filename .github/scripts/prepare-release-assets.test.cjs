@@ -218,8 +218,16 @@ test("安卓 APK 随桌面资源归集且不进入桌面自动更新清单", () 
     const workflow = yaml.load(
       fs.readFileSync(path.join(__dirname, "../workflows/release.yml"), "utf8"),
     );
-    assert.ok(workflow.jobs.release.needs.includes("android"));
-    assert.equal(workflow.jobs.android.with.release, true);
+    assert.equal(workflow.jobs.release.needs, "build");
+    assert.ok(
+      workflow.jobs.build.strategy.matrix.include.some(
+        (target) => target.target === "android-arm64-v8a",
+      ),
+    );
+    const androidStep = workflow.jobs.build.steps.find(
+      (step) => step.uses === "./.github/actions/build-android",
+    );
+    assert.equal(androidStep.with.release, "true");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

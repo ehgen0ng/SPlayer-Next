@@ -22,7 +22,7 @@ on:
       - "capacitor.config.ts"
       - "tsconfig*.json"
       - ".github/workflows/dev.yml"
-      - ".github/workflows/android.yml"
+      - ".github/actions/build-android/**"
   workflow_dispatch:
 
 concurrency:
@@ -33,12 +33,10 @@ env:
   NODE_VERSION: 24.x
 
 jobs:
-  android:
-    uses: ./.github/workflows/android.yml
-
   build:
     name: Build on ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.target == 'android-arm64-v8a' && 180 || 360 }}
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +50,9 @@ jobs:
           - name: Linux x64
             runner: ubuntu-latest
             target: linux-x64
+          - name: Android arm64-v8a
+            runner: ubuntu-latest
+            target: android-arm64-v8a
     steps:
       - name: Check out git repository
         uses: actions/checkout@v5
@@ -66,16 +67,18 @@ jobs:
           cache: pnpm
 
       - name: Setup Rust toolchain
+        if: matrix.target != 'android-arm64-v8a'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Rust Cache
+        if: matrix.target != 'android-arm64-v8a'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
 
       # Linux: 安装系统构建/打包依赖
       - name: 安装系统依赖 (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.target != 'android-arm64-v8a'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
@@ -98,6 +101,7 @@ jobs:
 
       # 构建各平台代表性产物
       - name: Build ${{ matrix.name }}
+        if: matrix.target != 'android-arm64-v8a'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,8 +123,13 @@ jobs:
               ;;
           esac
 
+      - name: Build Android APK
+        if: matrix.target == 'android-arm64-v8a'
+        uses: ./.github/actions/build-android
+
       # 上传当前平台的安装包产物
       - name: Upload Artifact
+        if: matrix.target != 'android-arm64-v8a'
         uses: actions/upload-artifact@v7
         with:
           name: SPlayer-Next-${{ matrix.target }}

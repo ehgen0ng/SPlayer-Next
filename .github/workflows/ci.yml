@@ -11,7 +11,24 @@ concurrency:
 
 jobs:
   android:
-    uses: ./.github/workflows/android.yml
+    name: Build on Android arm64-v8a
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: |
+          # CI 使用默认源安装锁定的依赖
+          rm -f .npmrc
+          pnpm install --frozen-lockfile
+      - uses: ./.github/actions/build-android
 
   check:
     runs-on: ubuntu-latest

@@ -1,0 +1,63 @@
+name: Build Android APK
+description: 构建、校验并上传 Android arm64-v8a APK，需要先检出代码并安装项目依赖
+
+inputs:
+  ref:
+    description: 正式构建对应的版本标签
+    default: ""
+  release:
+    description: 是否使用仓库配置的密钥签名正式 APK
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: 21
+    - uses: gradle/actions/setup-gradle@v4
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: platform-tools
+    - name: Install Android SDK components
+      shell: bash
+      run: |
+        # 安装与 Gradle 配置一致的 SDK 和原生构建工具
+        sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+    - uses: actions/cache@v4
+      with:
+        path: android/vendor/node
+        key: android-node-24.22.2-${{ runner.os }}-${{ hashFiles('scripts/prepare-android-runtime.py') }}
+    - name: Build debug APK
+      if: inputs.release != 'true'
+      shell: bash
+      run: pnpm build:android
+    - name: Build signed release APK
+      if: inputs.release == 'true'
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ inputs.ref }}
+        ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/splayer-next-release.jks
+      run: |
+        # 校验标签并仅使用仓库配置的稳定签名密钥
+        test "v$(node -p "require('./package.json').version")" = "$RELEASE_TAG"
+        test -n "$ANDROID_KEYSTORE_BASE64" || { echo "缺少 ANDROID_KEYSTORE_BASE64"; exit 1; }
+        umask 077
+        trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+        printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+        pnpm build:android:release
+    - name: Verify APK signature
+      shell: bash
+      run: |
+        # 校验最终上传的 APK 签名
+        "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose dist/android/*.apk
+    - name: Native playback tests and Android lint
+      shell: bash
+      run: ./android/gradlew -p android :app:testDebugUnitTest :app:lintDebug --console=plain
+    - uses: actions/upload-artifact@v7
+      with:
+        name: SPlayer-Next-android-arm64-v8a
+        path: dist/android/*.apk
+        if-no-files-found: error
