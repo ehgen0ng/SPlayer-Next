@@ -2,3 +2,4 @@
 *.{png,jpg,jpeg,gif,webp,ico,svg} binary
 *.{woff,woff2,ttf,eot} binary
 *.node binary
+android/runtime/*.tar.gz binary

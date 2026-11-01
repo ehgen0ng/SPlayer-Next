@@ -10,7 +10,7 @@ const runtime = spawnSync("python3", [path.join(root, "scripts/prepare-android-r
   stdio: "inherit",
 });
 if (runtime.error) throw runtime.error;
-if (runtime.status !== 0) throw new Error("Android Node 24 构建失败");
+if (runtime.status !== 0) throw new Error("Android Node 24 运行时准备失败");
 
 const require = createRequire(import.meta.url);
 const sqlitePackage = require.resolve("better-sqlite3/package.json");

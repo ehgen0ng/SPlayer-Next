@@ -26,10 +26,6 @@ runs:
       run: |
         # 安装与 Gradle 配置一致的 SDK 和原生构建工具
         sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
-    - uses: actions/cache@v4
-      with:
-        path: android/vendor/node
-        key: android-node-24.22.2-${{ runner.os }}-${{ hashFiles('scripts/prepare-android-runtime.py') }}
     - name: Build debug APK
       if: inputs.release != 'true'
       shell: bash

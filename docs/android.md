@@ -54,16 +54,16 @@
 
 Node.js 与 pnpm 要求见 [贡献指南](/contributing)，pnpm 版本以根 `package.json` 的 `packageManager` 为准。另需安装：
 
-| 工具                    | 版本或要求                    |
-| ----------------------- | ----------------------------- |
-| Python 与 C/C++ 工具链  | Python 3 及运行时源码构建工具 |
-| JDK                     | 21                            |
-| Android SDK Platform    | 36                            |
-| Android SDK Build Tools | 36.0.0                        |
-| Android NDK             | 27.2.12479018                 |
-| CMake                   | 3.22.1                        |
+| 工具                    | 版本或要求      |
+| ----------------------- | --------------- |
+| Python                  | 3.12 或更高版本 |
+| JDK                     | 21              |
+| Android SDK Platform    | 36              |
+| Android SDK Build Tools | 36.0.0          |
+| Android NDK             | 27.2.12479018   |
+| CMake                   | 3.22.1          |
 
-设置 `JAVA_HOME` 和 `ANDROID_HOME`，安装 SDK Platform Tools 并接受 SDK 许可证。运行时源码构建支持 macOS 与 Linux，Windows 可通过 WSL 执行。
+设置 `JAVA_HOME` 和 `ANDROID_HOME`，安装 SDK Platform Tools 并接受 SDK 许可证。
 
 ### 构建与调试
 
@@ -87,7 +87,7 @@ pnpm dev:android
 
 开发模式通过 `adb reverse` 连接本机 `14559` 端口，Vue 修改自动更新；Node、Java 或 C/C++ 修改后需重新运行命令。独立 APK 包含网页与 Node 资源，不依赖开发电脑。
 
-首次构建会下载固定版本的 Node 源码并校验 SHA-256，再通过 NDK 编译嵌入式运行时；后续复用 `android/vendor/node`，首次编译耗时较长。
+构建时复用 Git 中 `android/runtime/` 内的 ARM64 预编译运行时，校验 SHA-256 后解压到 `android/vendor/node`，无需重新编译 Node。版本与校验值记录在 `manifest.json` 中，压缩包包含配套头文件和许可证；仅升级运行时时需要替换压缩包与清单。
 
 ### 安卓检查
 

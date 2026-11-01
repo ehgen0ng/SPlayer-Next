@@ -10,7 +10,7 @@ set_source_files_properties(bridge.cpp "${SPLAYER_SQLITE_ROOT}/src/better_sqlite
     PROPERTIES OBJECT_DEPENDS "${SPLAYER_NODE}/.version")
 
 add_library(node SHARED IMPORTED)
-set_target_properties(node PROPERTIES IMPORTED_LOCATION "${SPLAYER_NODE}/bin/${ANDROID_ABI}/libnode.so")
+set_target_properties(node PROPERTIES IMPORTED_LOCATION "${SPLAYER_NODE}/libnode.so")
 
 add_library(sqlite STATIC "${SPLAYER_SQLITE_ROOT}/deps/sqlite3/sqlite3.c")
 target_compile_definitions(sqlite PRIVATE ${SPLAYER_SQLITE_DEFINES})
