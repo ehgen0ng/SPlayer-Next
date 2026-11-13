@@ -5,14 +5,16 @@ import AutoImport from "unplugin-auto-import/vite";
 import { defineConfig } from "vitest/config";
 import pkg from "./package.json" with { type: "json" };
 
+const { author } = pkg as typeof pkg & { author?: { name?: string; url?: string } };
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __APP_REPO_URL__: JSON.stringify(pkg.repository.url),
     __APP_REPO_NAME__: JSON.stringify(pkg.productName),
-    __APP_AUTHOR__: JSON.stringify(pkg.author.name),
+    __APP_AUTHOR__: JSON.stringify(author?.name ?? ""),
     __APP_HOMEPAGE__: JSON.stringify(pkg.homepage),
-    __APP_AUTHOR_URL__: JSON.stringify(pkg.author.url),
+    __APP_AUTHOR_URL__: JSON.stringify(author?.url ?? ""),
   },
   resolve: {
     alias: {
