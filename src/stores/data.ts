@@ -133,6 +133,7 @@ export const useDataStore = defineStore(
 
     /** 辅助平台登录资料 */
     const platformProfiles = ref<Partial<Record<Platform, PlatformProfile>>>({});
+    const activeAccountPlatform = ref<Platform>("qqmusic");
 
     /**
      * 获取指定平台的登录资料
@@ -173,6 +174,7 @@ export const useDataStore = defineStore(
       dailyHistory,
       ensureDailyRecommend,
       platformProfiles,
+      activeAccountPlatform,
       getPlatformProfile,
       setPlatformProfile,
       clearPlatformProfile,
@@ -181,7 +183,7 @@ export const useDataStore = defineStore(
   {
     persist: {
       storage: localStorage,
-      pick: ["searchHistory", "platformProfiles"],
+      pick: ["searchHistory", "platformProfiles", "activeAccountPlatform"],
     },
   },
 );

@@ -1,5 +1,10 @@
 import type { KGModule } from "../core/types";
-import { getSessionCookies, saveSessionCookies } from "@main/database/sessions";
+import {
+  getSessionCookies,
+  saveSessionCookies,
+  getAccountVersion,
+  rememberAccount,
+} from "@main/database/sessions";
 import { kgGatewayRequest } from "../core/request";
 import { rsaEncryptKugou } from "../core/crypto";
 
@@ -15,7 +20,9 @@ interface UserDetailData {
   vip_type?: number;
 }
 
+/** 获取酷狗账号资料并保存已验证的账号，丢弃换号前的响应 */
 const userDetail: KGModule = async () => {
+  const version = getAccountVersion("kugou");
   const session = getSessionCookies("kugou");
   if (!session.token || !session.userid) return { code: 200, loggedIn: false };
   const clienttime = Math.floor(Date.now() / 1000);
@@ -50,17 +57,20 @@ const userDetail: KGModule = async () => {
     ...(avatar ? { avatar: String(avatar).replace(/^http:\/\//, "https://") } : {}),
     ...(data.vip_type !== undefined ? { vip_type: String(data.vip_type) } : {}),
   };
+  if (version !== getAccountVersion("kugou")) throw new Error("KG 账号已切换");
   saveSessionCookies("kugou", nextSession);
+  const profile = {
+    userId: session.userid,
+    nickname: nextSession.nickname || `KG ${session.userid}`,
+    avatarUrl: nextSession.avatar || "",
+    isVip,
+    vipLevel: Number(nextSession.vip_type || 0),
+  };
+  rememberAccount("kugou", profile);
   return {
     code: 200,
     loggedIn: true,
-    profile: {
-      userId: session.userid,
-      nickname: nextSession.nickname || `KG ${session.userid}`,
-      avatarUrl: nextSession.avatar || "",
-      isVip,
-      vipLevel: Number(nextSession.vip_type || 0),
-    },
+    profile,
   };
 };
 

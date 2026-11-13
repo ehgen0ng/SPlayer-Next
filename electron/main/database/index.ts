@@ -67,7 +67,17 @@ export const initDatabase = (
     CREATE TABLE IF NOT EXISTS account_sessions (
       platform TEXT PRIMARY KEY,
       cookies TEXT NOT NULL DEFAULT '{}',
+      account_id TEXT,
       updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS platform_accounts (
+      platform TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      cookies TEXT NOT NULL,
+      profile TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (platform, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS lyric_cache (

@@ -576,6 +576,11 @@ export const createAppApi = (
         subscribe<PluginInfo>("plugin:status", callback),
     },
     apis: {
+      listAccounts: () => ipcRenderer.invoke("apis:listAccounts"),
+      switchAccount: (platform: string, userId: string) =>
+        ipcRenderer.invoke("apis:switchAccount", platform, userId),
+      removeAccount: (platform: string, userId: string) =>
+        ipcRenderer.invoke("apis:removeAccount", platform, userId),
       // 调用任意平台的任意接口
       call: (platform: string, name: string, params?: Record<string, unknown>) =>
         ipcRenderer.invoke("apis:call", platform, name, params ?? {}),

@@ -40,6 +40,17 @@ export const getCredentialMusicId = (credential: QQMusicCredential, fallback = "
   String(credential.str_musicid || credential.musicid || fallback).replace(/^o/, "");
 
 /**
+ * 读取会话中的音乐账号 ID，兼容网页登录字段
+ * @param cookies - QM 会话字段
+ * @returns 音乐账号 ID，未登录时为 0
+ */
+export const getSessionMusicId = (cookies: Record<string, string>): string =>
+  (cookies.qm_str_musicid || cookies.uin || cookies.wxuin || cookies.p_uin || "0").replace(
+    /^o/,
+    "",
+  );
+
+/**
  * 将登录凭据转换为持久化会话字段
  * @param credential - QM 登录凭据
  * @param loginType - 登录类型
@@ -48,7 +59,7 @@ export const getCredentialMusicId = (credential: QQMusicCredential, fallback = "
  */
 export const credentialToSession = (
   credential: QQMusicCredential,
-  loginType: 1 | 2,
+  loginType: 1 | 2 | 6,
   fallbackMusicId = "",
 ): Record<string, string> => {
   const musicId = getCredentialMusicId(credential, fallbackMusicId);

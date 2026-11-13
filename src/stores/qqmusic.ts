@@ -137,6 +137,12 @@ export const useQQMusicStore = defineStore("qqmusic", () => {
     data.clearPlatformProfile("qqmusic");
   };
 
+  /** 切换保存账号前隔离旧请求并释放旧账号收藏 */
+  const prepareAccountSwitch = (): void => {
+    statusRequestId++;
+    data.clearPlatformProfile("qqmusic");
+  };
+
   return {
     profile,
     isLoggedIn,
@@ -152,5 +158,6 @@ export const useQQMusicStore = defineStore("qqmusic", () => {
     loadContent,
     fetchStatus,
     logout,
+    prepareAccountSwitch,
   };
 });

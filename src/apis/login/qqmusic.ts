@@ -28,6 +28,9 @@ interface QmQrCheckResponse {
  * @param type 扫码类型，'qq' 或 'wx'
  */
 const createQmQrAdapter = (type: "qq" | "wx"): QrLoginAdapter => ({
+  cancel: async (key) => {
+    await qqmusicCall("login_qr_cancel", { key });
+  },
   create: async () => {
     const res = await qqmusicCall<QmQrKeyResponse>("login_qr_key", { type, timestamp: Date.now() });
     return { key: res.key, content: res.content };

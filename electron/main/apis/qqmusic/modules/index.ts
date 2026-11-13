@@ -16,7 +16,7 @@ import user_detail from "./user_detail";
 import user_playlist from "./user_playlist";
 import song_url from "./song_url";
 import comment from "./comment";
-import { login_qr_key, login_qr_check } from "./login_qr";
+import { login_qr_key, login_qr_check, login_qr_cancel } from "./login_qr";
 
 export const modules: Record<string, QMModule> = {
   leaderboard,
@@ -33,4 +33,5 @@ export const modules: Record<string, QMModule> = {
   comment,
   login_qr_key,
   login_qr_check,
+  login_qr_cancel,
 };

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@main/database/sessions", () => ({
+  getAccountVersion: () => 0,
   getSessionCookies: () => ({ uin: "123456", qm_keyst: "saved-key" }),
 }));
 vi.mock("@main/utils/logger", () => ({ coreLog: { info: vi.fn(), warn: vi.fn() } }));

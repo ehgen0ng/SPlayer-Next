@@ -9,9 +9,10 @@ import {
   clearSessionCookies,
   getSessionCookies,
   saveSessionCookies,
+  getAccountVersion,
 } from "@main/database/sessions";
 import { coreLog } from "@main/utils/logger";
-import { sessionToCookieHeader } from "./credential";
+import { getSessionMusicId, sessionToCookieHeader } from "./credential";
 
 /** Session 字段（可能缺失则下次请求会自动补拿） */
 interface SessionCache {
@@ -30,6 +31,7 @@ let sessionGeneration = 0;
 const invalidateSession = (): void => {
   sessionGeneration++;
   session = { expireAt: 0 };
+  initPromise = null;
 };
 
 /** 读取内存或数据库中的 QM cookies */
@@ -39,13 +41,32 @@ export const getQQMusicCookies = (): Record<string, string> => {
   return userCookies;
 };
 
-/** 更新 QM cookies 并落库 */
+/**
+ * 更新 QM 会话，换号时整体替换以避免混入旧账号字段
+ * @param cookies - 新登录或续期返回的会话字段
+ */
 export const mergeQQMusicCookies = (cookies: Record<string, string>): void => {
   const current = getQQMusicCookies();
-  userCookies = { ...current, ...cookies };
+  const nextId = getSessionMusicId(cookies);
+  if (nextId !== "0" && nextId !== getSessionMusicId(current)) refreshPromise = null;
+  userCookies =
+    nextId !== "0" && nextId !== getSessionMusicId(current)
+      ? { ...cookies }
+      : { ...current, ...cookies };
   saveSessionCookies("qqmusic", userCookies);
   invalidateSession();
   coreLog.info(`[qm-cookie] 已保存 Cookie (${Object.keys(userCookies).length} 个字段)`);
+};
+
+/**
+ * 恢复已保存的 QM 账号并清空客户端会话
+ * @param cookies - 已保存的完整凭据
+ */
+export const setQQMusicCookies = (cookies: Record<string, string>): void => {
+  userCookies = { ...cookies };
+  saveSessionCookies("qqmusic", userCookies);
+  invalidateSession();
+  refreshPromise = null;
 };
 
 /** 清空 QM cookies 登录态 */
@@ -53,14 +74,13 @@ export const clearQQMusicCookies = (): void => {
   userCookies = {};
   clearSessionCookies("qqmusic");
   invalidateSession();
+  refreshPromise = null;
   coreLog.info("[qm-cookie] 已从数据库中清空 QM Session");
 };
 
 /** 提取当前登录 uin（纯数字形式） */
 export const getQQMusicUin = (): string => {
-  const cookies = getQQMusicCookies();
-  const raw = cookies.qm_str_musicid || cookies.uin || cookies.wxuin || cookies.p_uin || "";
-  return raw ? raw.replace(/^o/, "") : "0";
+  return getSessionMusicId(getQQMusicCookies());
 };
 
 /** 重试次数与退避 */
@@ -76,6 +96,8 @@ interface FcgResponse {
 }
 
 export interface QMRequestOptions {
+  /** 验证新登录时使用独立凭据，不覆盖当前账号 */
+  cookies?: Record<string, string>;
   /** 是否在请求前初始化客户端会话 */
   session?: boolean;
   /** 追加到 comm 的字段（如 tmeLoginType） */
@@ -94,8 +116,9 @@ const postRaw = async (
   extraHeaders?: Record<string, string>,
   useAuth = true,
   signed = false,
+  credential?: Record<string, string>,
 ): Promise<FcgResponse> => {
-  const cookies = useAuth ? getQQMusicCookies() : {};
+  const cookies = useAuth ? (credential ?? getQQMusicCookies()) : {};
   const cookieStr = sessionToCookieHeader(cookies);
   const payload = JSON.stringify(body);
   const url = new URL(signed ? "musics.fcg" : QM_API_URL, QM_API_URL);
@@ -133,7 +156,7 @@ const ensureSession = (): Promise<void> => {
   if (session.uid && session.expireAt > Date.now()) return Promise.resolve();
   if (initPromise) return initPromise;
 
-  initPromise = (async () => {
+  const pending = (async () => {
     const generation = sessionGeneration;
     try {
       const uin = getQQMusicUin();
@@ -161,12 +184,13 @@ const ensureSession = (): Promise<void> => {
       }
     } catch {
       // session 失败不阻塞后续调用，大部分接口无 session 也能回结果
-    } finally {
-      initPromise = null;
     }
-  })();
+  })().finally(() => {
+    if (initPromise === pending) initPromise = null;
+  });
 
-  return initPromise;
+  initPromise = pending;
+  return pending;
 };
 
 /**
@@ -183,6 +207,7 @@ export const qmRequest = async <T = unknown>(
   param: Record<string, unknown>,
   options: QMRequestOptions = {},
 ): Promise<T> => {
+  const accountVersion = getAccountVersion("qqmusic");
   const useSession = options.session !== false;
   if (useSession) await ensureSession();
 
@@ -190,9 +215,9 @@ export const qmRequest = async <T = unknown>(
   let triedRefresh = false;
 
   const buildComm = () => {
-    const cookies = getQQMusicCookies();
+    const cookies = options.cookies ?? getQQMusicCookies();
     const musickey = useAuth ? cookies.qm_keyst || cookies.qqmusic_key : undefined;
-    const uin = useAuth ? getQQMusicUin() : undefined;
+    const uin = useAuth ? getSessionMusicId(cookies) : undefined;
     const loginType =
       cookies.tmeLoginType !== undefined
         ? Number(cookies.tmeLoginType)
@@ -214,9 +239,15 @@ export const qmRequest = async <T = unknown>(
   let lastErr: unknown;
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     try {
+      if (!options.cookies && useAuth && accountVersion !== getAccountVersion("qqmusic")) {
+        throw new Error("QM 账号已切换");
+      }
       const comm = buildComm();
       const body = { comm, request: { module, method, param } };
-      const data = await postRaw(body, undefined, useAuth, options.signed);
+      const data = await postRaw(body, undefined, useAuth, options.signed, options.cookies);
+      if (!options.cookies && useAuth && accountVersion !== getAccountVersion("qqmusic")) {
+        throw new Error("QM 账号已切换");
+      }
       const outerCode = data.code ?? 0;
       const innerCode = data.request?.code ?? 0;
 
@@ -246,6 +277,7 @@ export const qmRequest = async <T = unknown>(
       }
       return data.request?.data as T;
     } catch (err) {
+      if (!options.cookies && useAuth && accountVersion !== getAccountVersion("qqmusic")) throw err;
       lastErr = err;
       if (attempt < MAX_RETRY) await delay(RETRY_BACKOFF);
     }
@@ -276,6 +308,7 @@ interface RefreshCredentialData {
  * 执行 LoginServer.Login（loginMode=2）向服务端请求刷新 musickey
  */
 const performRefreshCredential = async (): Promise<boolean> => {
+  const accountVersion = getAccountVersion("qqmusic");
   const cookies = getQQMusicCookies();
   const uin = getQQMusicUin();
   const musickey = cookies.qm_keyst || cookies.qqmusic_key;
@@ -326,6 +359,7 @@ const performRefreshCredential = async (): Promise<boolean> => {
       },
     });
     const inner = resp.request;
+    if (accountVersion !== getAccountVersion("qqmusic")) return false;
     if (resp.code !== 0 || inner?.code !== 0) {
       coreLog.warn("[qm-refresh] 刷新被拒绝:", JSON.stringify(inner ?? resp));
       return false;
@@ -374,12 +408,9 @@ let refreshPromise: Promise<boolean> | null = null;
  */
 export const refreshQMCredential = async (): Promise<boolean> => {
   if (refreshPromise) return refreshPromise;
-  refreshPromise = (async () => {
-    try {
-      return await performRefreshCredential();
-    } finally {
-      refreshPromise = null;
-    }
-  })();
-  return refreshPromise;
+  const pending = performRefreshCredential().finally(() => {
+    if (refreshPromise === pending) refreshPromise = null;
+  });
+  refreshPromise = pending;
+  return pending;
 };

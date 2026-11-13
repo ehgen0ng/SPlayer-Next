@@ -4,6 +4,8 @@ import {
   clearSessionCookies,
   getSessionCookies,
   saveSessionCookies,
+  rememberAccount,
+  getAccountVersion,
 } from "@main/database/sessions";
 import { store } from "@main/store";
 import { buildCacheKey, cacheClear, cacheGet, cacheSet } from "./core/cache";
@@ -132,12 +134,17 @@ const loadSession = (): Record<string, string> => {
   return sessionCache;
 };
 
-const persistSession = (cookies: Record<string, string>): void => {
+/**
+ * 保存网易云会话并同步设备状态
+ * @param cookies - 完整会话字段
+ * @param keepAccount - 续期时保留账号身份
+ */
+const persistSession = (cookies: Record<string, string>, keepAccount = false): void => {
   if (loadSession().MUSIC_U !== cookies.MUSIC_U) resetWebClientSession();
   sessionVersion++;
   sessionCache = cookies;
   syncDeviceState(cookies);
-  saveSessionCookies("netease", cookies);
+  saveSessionCookies("netease", cookies, keepAccount);
 };
 
 /** "k1=v1; k2=v2; ..." 形式序列化 */
@@ -153,8 +160,17 @@ export const setNeteaseCookies = (cookies: Record<string, string>): void => {
   cacheClear();
 };
 
+/**
+ * 合并网易云会话，新账号只沿用设备身份
+ * @param patch - 登录返回的 Cookie 字段
+ */
 export const mergeNeteaseCookies = (patch: Record<string, string>): void => {
-  persistSession({ ...loadSession(), ...patch });
+  const current = loadSession();
+  const base =
+    patch.MUSIC_U && patch.MUSIC_U !== current.MUSIC_U
+      ? { deviceId: current.deviceId || getDeviceId() }
+      : current;
+  persistSession({ ...base, ...patch });
   cacheClear();
 };
 
@@ -275,9 +291,11 @@ export const callNetease = async (
   }
 
   const requestSessionVersion = sessionVersion;
+  const requestAccountVersion = getAccountVersion("netease");
   const res = await fn(query, createRequest);
   /** 旧会话的响应不能覆盖登出或切换账号后的凭据与缓存 */
   if (requestSessionVersion !== sessionVersion) {
+    if (requestAccountVersion !== getAccountVersion("netease")) throw new Error("平台账号已变更");
     return { status: res.status, body: res.body };
   }
 
@@ -290,12 +308,30 @@ export const callNetease = async (
       patch.deviceId = getDeviceId();
     }
     if (Object.keys(patch).length) {
-      persistSession({ ...loadSession(), ...patch });
+      if (name.startsWith("login") && name !== "login_refresh" && patch.MUSIC_U) {
+        mergeNeteaseCookies(patch);
+      } else persistSession({ ...loadSession(), ...patch }, name === "login_refresh");
       cacheClear();
     }
   }
 
   const value = { status: res.status, body: res.body };
+  if (name === "login_status") {
+    const body = res.body as {
+      data?: {
+        profile?: { userId?: number; nickname?: string; avatarUrl?: string; vipType?: number };
+      };
+    };
+    const profile = body.data?.profile;
+    if (profile?.userId && profile.nickname) {
+      rememberAccount("netease", {
+        userId: String(profile.userId),
+        nickname: profile.nickname,
+        avatarUrl: profile.avatarUrl ?? "",
+        isVip: !!profile.vipType,
+      });
+    }
+  }
   if (cacheable && res.status === 200 && Number((res.body as { code?: unknown }).code) === 200) {
     cacheSet(cacheKey, value);
   }

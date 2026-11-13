@@ -11,6 +11,7 @@ import { fetchKugouLoginStatus, kugouQrLoginAdapter, logoutKugou, setKugouCookie
 export type QrLoginState = "expired" | "waiting" | "scanned" | "success";
 
 export interface QrLoginAdapter {
+  cancel?: (key: string) => Promise<void>;
   create: () => Promise<{ key: string; content: string }>;
   check: (key: string) => Promise<{
     state: QrLoginState;

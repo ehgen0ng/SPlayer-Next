@@ -1,7 +1,7 @@
 import { getKgAppid, getKgClientver } from "../core/config";
 import { getDeviceMid, signatureWebParams } from "../core/crypto";
 import type { KGModule, KGParams } from "../core/types";
-import { getSessionCookies, saveSessionCookies } from "@main/database/sessions";
+import { getSessionCookies, saveSessionCookies, getAccountVersion } from "@main/database/sessions";
 
 const BASE_URL = "https://login-user.kugou.com";
 const SRC_APPID = 2919;
@@ -44,7 +44,13 @@ export const loginQrKey: KGModule = async () => {
   };
 };
 
+/**
+ * 查询酷狗扫码状态，换号后的旧授权不能覆盖当前会话
+ * @param params - 二维码 ID
+ * @returns 扫码进度和公开资料
+ */
 export const loginQrCheck: KGModule = async (params: KGParams) => {
+  const version = getAccountVersion("kugou");
   const key = String(params.key ?? "");
   if (!key) throw new Error("KG QR key missing");
   const body = await request("/v2/get_userinfo_qrcode", {
@@ -54,12 +60,14 @@ export const loginQrCheck: KGModule = async (params: KGParams) => {
     qrcode: key,
   });
   const data = body?.data ?? {};
+  if (version !== getAccountVersion("kugou")) return { code: 200, status: 0 };
   const nickname = data.username ?? data.nickname ?? data.nick_name ?? data.user_name;
   const avatarUrl =
     data.userpic ?? data.user_pic ?? data.avatar ?? data.avatar_url ?? data.pic ?? data.user_img;
   if (Number(data.status) === 4) {
     saveSessionCookies("kugou", {
-      ...getSessionCookies("kugou"),
+      guid: getSessionCookies("kugou").guid || "",
+      dfid: getSessionCookies("kugou").dfid || "",
       token: String(data.token ?? ""),
       userid: String(data.userid ?? ""),
       vip_token: String(data.vip_token ?? ""),

@@ -5,6 +5,13 @@
 /** 支持的音源平台 */
 export type ApiPlatform = "netease" | "qqmusic" | "kugou";
 
+/** 已保存账号的公开资料，凭据仅在主进程持有 */
+export interface SavedPlatformAccount {
+  platform: ApiPlatform;
+  profile: import("./platform").PlatformProfile;
+  active: boolean;
+}
+
 /** 通用响应包装 */
 export type ApiCallResponse =
   | { ok: true; status?: number; body?: unknown; data?: unknown }
@@ -12,6 +19,20 @@ export type ApiCallResponse =
 
 /** 渲染端统一入口 */
 export interface ApisApi {
+  /** 列出三个平台已保存的账号，不包含登录凭据 */
+  listAccounts: () => Promise<SavedPlatformAccount[]>;
+  /**
+   * 切换指定平台的活动账号
+   * @param platform - 音乐平台
+   * @param userId - 已保存的账号 ID
+   */
+  switchAccount: (platform: ApiPlatform, userId: string) => Promise<void>;
+  /**
+   * 移除本地保存的账号，当前账号会同时退出
+   * @param platform - 音乐平台
+   * @param userId - 已保存的账号 ID
+   */
+  removeAccount: (platform: ApiPlatform, userId: string) => Promise<void>;
   /**
    * 调用任意音源接口
    * @param platform 音源平台

@@ -2,6 +2,7 @@
 import { isAndroid } from "@/platform";
 import { useDataStore } from "@/stores/data";
 import { useUserStore } from "@/stores/user";
+import { useAccountsStore } from "@/stores/accounts";
 import { neteaseQrLoginAdapter, syncNeteaseDeviceName } from "@/apis/login/netease";
 import { toast } from "@/composables/useToast";
 import { getPlatformAccountAdapter, type PlatformAccountAdapter } from "@/apis/login/platform";
@@ -14,6 +15,7 @@ defineOptions({ inheritAttrs: false });
 const { t } = useI18n();
 const dataStore = useDataStore();
 const userStore = useUserStore();
+const accounts = useAccountsStore();
 
 const props = defineProps<{ platform: Platform }>();
 const adapter = computed<PlatformAccountAdapter>(() => {
@@ -81,6 +83,27 @@ const currentQrTitle = computed(() => {
   return "";
 });
 
+const addAccountItems = computed<DropdownMenuItem[]>(() => [
+  ...(qrDropdownItems.value.length
+    ? qrDropdownItems.value
+    : [{ key: "qr", label: t("settings.platformLogin.loginQr") }]),
+  { key: "cookie", label: t("settings.platformLogin.manualCookie") },
+  ...(adapter.value.openWebLogin && !isAndroid
+    ? [{ key: "web", label: t("settings.platformLogin.loginWeb") }]
+    : []),
+]);
+
+/**
+ * 为已登录平台添加或重新登录另一个账号
+ * @param key - 扫码、Cookie 或网页登录方式
+ */
+const handleAddAccount = (key: string): void => {
+  if (key === "cookie") cookieModalOpen.value = true;
+  else if (key === "web") void handleLogin();
+  else if (key === "qr") openSingleQrModal();
+  else handleQrOptionSelect(key);
+};
+
 const handleQrOptionSelect = (key: string): void => {
   selectedQrKey.value = key;
   qrModalOpen.value = true;
@@ -102,8 +125,8 @@ watch(cookieModalOpen, (val) => {
 
 /** 刷新平台登录状态，NCM 沿用用户 Store 作为唯一账号来源 */
 const refresh = async (): Promise<void> => {
-  const latest = await adapter.value.fetchProfile();
-  if (props.platform !== "netease") dataStore.setPlatformProfile(props.platform, latest);
+  await accounts.fetchStatus(props.platform);
+  await accounts.refresh();
 };
 
 onMounted(refresh);
@@ -116,6 +139,7 @@ const handleLogin = async (): Promise<void> => {
     if (ok) {
       await refresh();
       if (profile.value) {
+        dataStore.activeAccountPlatform = props.platform;
         toast.success(
           t("settings.platformLogin.toast.loginSuccess", {
             name: platformName.value,
@@ -139,6 +163,7 @@ const handleDisconnect = async (): Promise<void> => {
   confirmOpen.value = false;
   await adapter.value.logout();
   dataStore.clearPlatformProfile(props.platform);
+  await accounts.refresh();
   toast.success(t("settings.platformLogin.toast.logoutDone", { name: platformName.value }));
 };
 
@@ -157,6 +182,7 @@ const handleManualCookieSubmit = async (): Promise<void> => {
 
     await refresh();
     if (profile.value) {
+      dataStore.activeAccountPlatform = props.platform;
       cookieModalOpen.value = false;
       manualCookie.value = "";
       toast.success(t("settings.platformLogin.toast.cookieSuccess", { name: platformName.value }));
@@ -183,6 +209,7 @@ const handleQrSuccess = async (): Promise<void> => {
     return;
   }
   qrModalOpen.value = false;
+  dataStore.activeAccountPlatform = props.platform;
   toast.success(
     t("settings.platformLogin.toast.loginSuccess", {
       name: platformName.value,
@@ -239,6 +266,14 @@ const handleQrSuccess = async (): Promise<void> => {
 
       <div class="shrink-0 flex items-center gap-2">
         <template v-if="profile">
+          <SDropdownMenu :items="addAccountItems" @select="handleAddAccount">
+            <template #trigger>
+              <SButton variant="secondary" size="small" :disabled="accounts.busy">
+                <template #icon><IconLucideUserPlus /></template>
+                {{ t("login.addAccount") }}
+              </SButton>
+            </template>
+          </SDropdownMenu>
           <SButton variant="secondary" size="small" type="error" @click="confirmOpen = true">
             <template #icon>
               <IconLucideUnplug class="size-4" />
@@ -306,6 +341,12 @@ const handleQrSuccess = async (): Promise<void> => {
     </div>
 
     <!-- 退出确认弹窗 -->
+    <SavedAccounts
+      v-if="accounts.accounts.some((account) => account.platform === platform)"
+      :platform="platform"
+      removable
+      class="rounded-xl border border-solid border-outline-variant/15 p-3"
+    />
     <SDialog
       v-model:open="confirmOpen"
       :title="t('settings.platformLogin.logoutTitle', { name: platformName })"

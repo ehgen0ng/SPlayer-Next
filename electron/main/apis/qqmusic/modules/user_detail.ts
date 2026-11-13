@@ -8,6 +8,7 @@ import { clearQQMusicCookies, getQQMusicCookies, getQQMusicUin, qmRequest } from
 import { normalizeQQMusicVip, type QQMusicVipData } from "../core/vip";
 import { coreLog } from "@main/utils/logger";
 import type { QMModule } from "../core/types";
+import { getAccountVersion, rememberAccount } from "@main/database/sessions";
 
 interface ProfileCreator {
   nick?: string;
@@ -48,7 +49,9 @@ const fetchVipStatus = async (): Promise<QQMusicVipData | null> => {
   }
 };
 
+/** 获取当前 QM 账号资料，换号后的旧响应不得清除新会话 */
 const userDetail: QMModule = async (_params) => {
+  const version = getAccountVersion("qqmusic");
   const uin = getQQMusicUin();
   const cookies = getQQMusicCookies();
 
@@ -69,6 +72,7 @@ const userDetail: QMModule = async (_params) => {
   }
 
   const [creator, vipData] = await Promise.all([fetchCgiProfile(), fetchVipStatus()]);
+  if (version !== getAccountVersion("qqmusic")) throw new Error("QM 账号已切换");
 
   // 若接口双双彻底失败（说明凭据已过期且自动续期失败）
   if (!creator && !vipData) {
@@ -84,17 +88,19 @@ const userDetail: QMModule = async (_params) => {
   const avatarUrl = creator?.headpic?.replace(/^http:\/\//, "https://");
   const nickname = creator?.nick || "";
   const vip = normalizeQQMusicVip(vipData);
+  const profile = {
+    userId: uin,
+    nickname,
+    avatarUrl: avatarUrl || "",
+    isVip: vip.isVip,
+    vipLevel: vip.vipLevel,
+  };
+  rememberAccount("qqmusic", profile);
 
   return {
     code: 200,
     loggedIn: true,
-    profile: {
-      userId: uin,
-      nickname,
-      avatarUrl: avatarUrl || "",
-      isVip: vip.isVip,
-      vipLevel: vip.vipLevel,
-    },
+    profile,
   };
 };
 

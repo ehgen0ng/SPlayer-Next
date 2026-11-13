@@ -15,6 +15,8 @@ const api = vi.hoisted(() => ({
   getSessionCookies: vi.fn(() => ({ MUSIC_U: "test-session" })),
   saveSessionCookies: vi.fn(),
   clearSessionCookies: vi.fn(),
+  rememberAccount: vi.fn(),
+  getAccountVersion: () => 0,
 }));
 
 vi.mock("@main/database/sessions", () => api);
@@ -88,6 +90,7 @@ describe("平台主进程缓存与会话", () => {
     expect(api.saveSessionCookies).toHaveBeenCalledWith(
       "netease",
       expect.objectContaining({ sdkState: "current" }),
+      false,
     );
   });
 

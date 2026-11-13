@@ -782,6 +782,12 @@ export const useUserStore = defineStore(
       await invalidateSession();
     };
 
+    /** 切换本地保存账号前隔离旧请求并释放旧账号内容 */
+    const prepareAccountSwitch = (): void => {
+      statusRequestId++;
+      resetAccountState();
+    };
+
     return {
       profile,
       lastRefreshAt,
@@ -789,6 +795,7 @@ export const useUserStore = defineStore(
       fetchStatus,
       invalidateSession,
       logout,
+      prepareAccountSwitch,
 
       playlists,
       likedSongIds,

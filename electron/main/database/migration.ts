@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 
 /** 当前 schema 版本 */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 type TableInfoRow = { name: string };
 
@@ -53,6 +53,10 @@ export const migrate = (d: Database.Database): void => {
   }
 
   // 版本无关部分
+  if (!hasColumn(d, "account_sessions", "account_id")) {
+    d.exec("ALTER TABLE account_sessions ADD COLUMN account_id TEXT");
+  }
+
   // 补 lyric_match_cache.extra 列
   if (!hasColumn(d, "lyric_match_cache", "extra")) {
     d.exec("ALTER TABLE lyric_match_cache ADD COLUMN extra TEXT");

@@ -8,7 +8,7 @@
 
 import { KG_GATEWAY_URL, getKgAppid, getKgClientver } from "./config";
 import { cleanKgResponse, getDeviceMid, signatureAndroidParams } from "./crypto";
-import { getSessionCookies } from "@main/database/sessions";
+import { getSessionCookies, getAccountVersion } from "@main/database/sessions";
 
 interface FetchOptions {
   headers?: Record<string, string>;
@@ -72,6 +72,7 @@ export const kgGatewayRequest = async <T = KGRawBody>(
   path: string,
   options: GatewayRequestOptions = {},
 ): Promise<T> => {
+  const version = getAccountVersion("kugou");
   const {
     method = "GET",
     baseURL = KG_GATEWAY_URL,
@@ -149,6 +150,8 @@ export const kgGatewayRequest = async <T = KGRawBody>(
   const rawText = await res.text();
   const cleaned = cleanKgResponse(rawText);
   const body = JSON.parse(cleaned) as KGRawBody;
+
+  if (version !== getAccountVersion("kugou")) throw new Error("KG 账号已切换");
 
   const code = body.error_code ?? body.errcode ?? body.err_code ?? 0;
   if (code !== 0 && code !== 200) {

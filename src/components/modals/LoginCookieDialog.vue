@@ -2,6 +2,8 @@
 import { toast } from "@/composables/useToast";
 import { useQQMusicStore } from "@/stores/qqmusic";
 import { useStatusStore } from "@/stores/status";
+import { useDataStore } from "@/stores/data";
+import { useAccountsStore } from "@/stores/accounts";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{
@@ -46,6 +48,8 @@ const submit = async (): Promise<void> => {
       return;
     }
     toast.success(t("login.success"));
+    useDataStore().activeAccountPlatform = "qqmusic";
+    await useAccountsStore().refresh();
     useStatusStore().myPlaylistSource = "online";
     emit("success");
     emit("update:open", false);

@@ -5,30 +5,50 @@ import type { QrLoginAdapter, QrLoginState } from "@/apis/login/platform";
 const props = defineProps<{ active: boolean; adapter: QrLoginAdapter }>();
 const emit = defineEmits<{ success: [] }>();
 const { t } = useI18n();
-
 const qrUrl = ref("");
 const key = ref("");
 const state = ref<QrLoginState>("waiting");
 const nickname = ref("");
 const avatarUrl = ref("");
 const refreshing = ref(false);
+const error = ref("");
+let generation = 0;
+let pollingGeneration: number | null = null;
+let currentAdapter: QrLoginAdapter | null = null;
 
 const tip = computed(() => {
+  if (error.value) return error.value;
   if (state.value === "expired") return t("login.qrTipExpired");
   if (state.value === "scanned") return t("login.qrTipScanned");
   if (state.value === "success") return t("login.qrTipDone");
   return t("login.qrTipWaiting");
 });
 
+/** 取消当前二维码，不让关闭弹窗后的授权写入会话 */
+const cancel = (): void => {
+  const previous = key.value;
+  key.value = "";
+  if (previous) void currentAdapter?.cancel?.(previous).catch(() => {});
+};
+
+/** 刷新二维码，忽略已关闭或被新一轮替代的生成结果 */
 const refresh = async (): Promise<void> => {
-  if (refreshing.value) return;
-  refreshing.value = true;
+  const version = ++generation;
+  const adapter = props.adapter;
   pause();
-  if (state.value !== "expired") qrUrl.value = "";
+  cancel();
+  currentAdapter = adapter;
+  refreshing.value = true;
+  qrUrl.value = "";
   nickname.value = "";
   avatarUrl.value = "";
+  error.value = "";
   try {
-    const result = await props.adapter.create();
+    const result = await adapter.create();
+    if (version !== generation || !props.active) {
+      await adapter.cancel?.(result.key);
+      return;
+    }
     key.value = result.key;
     if (result.content.startsWith("data:image/") || result.content.startsWith("blob:")) {
       qrUrl.value = result.content;
@@ -43,42 +63,60 @@ const refresh = async (): Promise<void> => {
       qrUrl.value = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
     }
     state.value = "waiting";
-    if (props.active) resume();
+    resume();
+  } catch {
+    if (version === generation && props.active) error.value = t("login.qrFailed");
   } finally {
-    refreshing.value = false;
+    if (version === generation) refreshing.value = false;
   }
 };
 
+/** 串行查询扫码结果，迟到响应不触发旧二维码的成功回调 */
 const poll = async (): Promise<void> => {
-  if (!key.value) return;
-  const result = await props.adapter.check(key.value);
-  state.value = result.state;
-  nickname.value = result.nickname ?? nickname.value;
-  avatarUrl.value = result.avatarUrl ?? avatarUrl.value;
-  if (result.state === "expired") {
-    pause();
-    await refresh();
-    return;
-  }
-  if (result.state === "success") {
-    pause();
-    emit("success");
+  const version = generation;
+  if (!key.value || !props.active || pollingGeneration === version) return;
+  pollingGeneration = version;
+  try {
+    const result = await props.adapter.check(key.value);
+    if (version !== generation || !props.active) return;
+    state.value = result.state;
+    nickname.value = result.nickname ?? nickname.value;
+    avatarUrl.value = result.avatarUrl ?? avatarUrl.value;
+    if (result.state === "expired") await refresh();
+    else if (result.state === "success") {
+      pause();
+      emit("success");
+    }
+  } catch {
+    if (version === generation && props.active) {
+      pause();
+      cancel();
+      error.value = t("login.qrFailed");
+    }
+  } finally {
+    if (pollingGeneration === version) pollingGeneration = null;
   }
 };
-
 const { pause, resume } = useIntervalFn(poll, 1500, { immediate: false });
 
 watch(
-  () => props.active,
-  (active) => {
+  () => [props.active, props.adapter] as const,
+  ([active]) => {
     if (active) void refresh();
-    else pause();
+    else {
+      generation++;
+      pause();
+      cancel();
+      refreshing.value = false;
+    }
   },
   { immediate: true },
 );
-
-onBeforeUnmount(pause);
-
+onBeforeUnmount(() => {
+  generation++;
+  pause();
+  cancel();
+});
 defineExpose({ pause, resume, refresh });
 </script>
 
@@ -120,6 +158,9 @@ defineExpose({ pause, resume, refresh });
         {{ t("login.qrTipExpired") }}
       </div>
     </div>
-    <div class="text-xs text-on-surface-variant">{{ tip }}</div>
+    <div role="status" class="text-xs text-on-surface-variant text-center">{{ tip }}</div>
+    <SButton v-if="error" variant="secondary" size="small" :loading="refreshing" @click="refresh">
+      {{ t("login.qrRefresh") }}
+    </SButton>
   </div>
 </template>

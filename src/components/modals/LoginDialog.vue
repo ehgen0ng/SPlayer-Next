@@ -4,6 +4,8 @@ import { useStatusStore } from "@/stores/status";
 import { toast } from "@/composables/useToast";
 import { REPO_NAME } from "@/utils/config";
 import { qqmusicQrLoginAdapter } from "@/apis/login/qqmusic";
+import { useDataStore } from "@/stores/data";
+import { useAccountsStore } from "@/stores/accounts";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
@@ -18,6 +20,8 @@ const cookieDialogOpen = ref(false);
 const finishLogin = async (): Promise<boolean> => {
   const ok = await user.fetchStatus();
   if (ok) {
+    useDataStore().activeAccountPlatform = "qqmusic";
+    await useAccountsStore().refresh();
     useStatusStore().myPlaylistSource = "online";
     toast.success(t("login.success"));
     emit("update:open", false);
@@ -37,11 +41,16 @@ const handleQrSuccess = async (): Promise<void> => {
   }
 };
 
+/** 暂停二维码轮询并打开手动登录 */
 const openManualCookie = (): void => {
   panelRef.value?.pause();
   cookieDialogOpen.value = true;
 };
 
+/**
+ * 同步手动登录弹窗的开关状态
+ * @param open - 是否显示弹窗
+ */
 const onCookieDialogOpen = (open: boolean): void => {
   cookieDialogOpen.value = open;
   if (!open && props.open) panelRef.value?.resume();

@@ -38,7 +38,10 @@ describe("设置中的 NCM 账号入口", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     setCookie.mockReset().mockResolvedValue({ ok: true });
-    Object.defineProperty(window, "api", { configurable: true, value: { apis: { setCookie } } });
+    Object.defineProperty(window, "api", {
+      configurable: true,
+      value: { apis: { setCookie, listAccounts: vi.fn().mockResolvedValue([]) } },
+    });
   });
 
   it("NCM 扫码入口复用原适配器，不创建辅助平台账号副本", async () => {

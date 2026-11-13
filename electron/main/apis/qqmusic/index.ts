@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { modules } from "./modules";
 import { clearQQMusicCookies, mergeQQMusicCookies } from "./core/request";
 import type { QMParams } from "./core/types";
+import { getAccountVersion } from "@main/database/sessions";
 
 export { clearQQMusicCookies, mergeQQMusicCookies };
 
@@ -31,6 +32,7 @@ const NON_CACHEABLE: ReadonlySet<string> = new Set([
   "comment",
   "login_qr_key",
   "login_qr_check",
+  "login_qr_cancel",
 ]);
 
 const hashParams = (params: unknown): string =>
@@ -75,11 +77,12 @@ export const callQQMusic = async (name: string, params: QMParams = {}): Promise<
 
   if (NON_CACHEABLE.has(name)) return fn(params);
 
-  const key = `${name}|${hashParams(params)}`;
+  const version = getAccountVersion("qqmusic");
+  const key = `${version}|${name}|${hashParams(params)}`;
   const hit = cacheGet(key);
   if (hit !== undefined) return hit;
 
   const value = await fn(params);
-  cacheSet(key, value);
+  if (version === getAccountVersion("qqmusic")) cacheSet(key, value);
   return value;
 };

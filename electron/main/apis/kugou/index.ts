@@ -7,14 +7,34 @@
 import { createHash } from "node:crypto";
 import { modules } from "./modules";
 import type { KGParams } from "./core/types";
-import { getSessionCookies, saveSessionCookies } from "@main/database/sessions";
+import { getSessionCookies, saveSessionCookies, getAccountVersion } from "@main/database/sessions";
 
 export const getKugouSession = (): Record<string, string> => getSessionCookies("kugou");
 
+/**
+ * 合并酷狗凭据，换号时仅保留设备标识
+ * @param values - 新登录或续期返回的会话字段
+ */
 export const mergeKugouSession = (values: Record<string, string>): void => {
-  saveSessionCookies("kugou", { ...getKugouSession(), ...values });
+  const current = getKugouSession();
+  const base =
+    values.userid && values.userid !== current.userid
+      ? { guid: current.guid || "", dfid: current.dfid || "" }
+      : current;
+  saveSessionCookies("kugou", { ...base, ...values });
+  clearKugouCache();
 };
 
+/**
+ * 整体恢复已保存的酷狗会话并清理账号相关缓存
+ * @param values - 完整会话字段
+ */
+export const setKugouSession = (values: Record<string, string>): void => {
+  saveSessionCookies("kugou", values);
+  clearKugouCache();
+};
+
+/** 清除当前酷狗账号并保留设备身份 */
 export const clearKugouSession = (): void => {
   const session = getKugouSession();
   const device = {
@@ -22,6 +42,7 @@ export const clearKugouSession = (): void => {
     ...(session.dfid ? { dfid: session.dfid } : {}),
   };
   saveSessionCookies("kugou", device);
+  clearKugouCache();
 };
 
 /** 2 分钟响应缓存 */
@@ -94,11 +115,12 @@ export const callKugou = async <T = unknown>(name: string, params: KGParams = {}
 
   if (NON_CACHEABLE.has(name)) return (await fn(params)) as T;
 
-  const key = `${name}|${hashParams(params)}`;
+  const version = getAccountVersion("kugou");
+  const key = `${version}|${name}|${hashParams(params)}`;
   const hit = cacheGet(key);
   if (hit !== undefined) return hit as T;
 
   const value = (await fn(params)) as T;
-  if (!isEmptyResult(value)) cacheSet(key, value);
+  if (version === getAccountVersion("kugou") && !isEmptyResult(value)) cacheSet(key, value);
   return value;
 };
