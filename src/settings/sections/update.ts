@@ -2,6 +2,7 @@ import type { SettingSection } from "@/types/settings-schema";
 import { UPDATE_CHANNELS } from "@shared/types/settings";
 import { IS_APPX } from "@/utils/config";
 import { useUpdateStore } from "@/stores/update";
+import { isAndroid } from "@/platform";
 
 export const updateSection: SettingSection = {
   id: "update",
@@ -12,10 +13,12 @@ export const updateSection: SettingSection = {
       type: "select",
       disabled: () => useUpdateStore().phase === "installing",
       binding: { store: "settings", path: "system.update.channel" },
-      options: UPDATE_CHANNELS.map((channel) => ({
-        value: channel,
-        labelKey: `settings.updateChannel.${channel}`,
-      })),
+      options: UPDATE_CHANNELS.filter((channel) => !isAndroid || channel !== "nightly").map(
+        (channel) => ({
+          value: channel,
+          labelKey: `settings.updateChannel.${channel}`,
+        }),
+      ),
       defaultValue: "stable",
       confirm: {
         when: (next) => next === "beta" || next === "nightly",

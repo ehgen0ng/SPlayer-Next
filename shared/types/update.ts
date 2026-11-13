@@ -21,6 +21,16 @@ export interface UpdateMeta {
   releaseUrl: string;
 }
 
+/** 随签名 APK 发布的更新清单 */
+export interface AndroidUpdateManifest {
+  version: string;
+  versionCode: number;
+  abi: string;
+  file: string;
+  sha512: string;
+  size: number;
+}
+
 /** 当前安装形式支持的更新方式 */
 export type UpdateMode = "inApp" | "external" | "store";
 export type UpdateErrorSource = "check" | "download" | "install";

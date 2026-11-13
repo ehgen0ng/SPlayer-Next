@@ -3,6 +3,7 @@ import { marked } from "marked";
 import { useUpdateStore } from "@/stores/update";
 import { APP_VERSION, IS_APPX } from "@/utils/config";
 import { formatFileSize } from "@/utils/format";
+import { isAndroid } from "@/platform";
 
 const { t } = useI18n();
 const update = useUpdateStore();
@@ -81,10 +82,10 @@ const releaseDateText = computed(() => {
           type="primary"
           @click="update.install()"
         >
-          {{ t("update.installNow") }}
+          {{ t(isAndroid ? "update.installApk" : "update.installNow") }}
         </SButton>
         <SButton v-else-if="update.phase === 'installing'" type="primary" disabled>
-          {{ t("update.installing") }}
+          {{ t(isAndroid ? "update.installingApk" : "update.installing") }}
         </SButton>
         <SButton v-else-if="update.phase === 'downloading'" type="primary" disabled>
           {{ t("update.downloading") }}

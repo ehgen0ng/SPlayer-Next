@@ -103,6 +103,14 @@ pnpm typecheck:android
 
 `ci.yml` 与 `dev.yml` 构建调试 APK，`release.yml` 构建签名 APK 并随桌面安装包一起发布。构建产物名为 `SPlayer-Next-android-arm64-v8a`，APK 不进入桌面自动更新清单。
 
+## 在线更新
+
+「设置 → 关于」支持检查和下载本仓库 `ehgen0ng/SPlayer-Next` 的正式版、Beta 更新，安卓暂不提供 Nightly 构建。版本与摘要从 GitHub 获取，安装包直连下载失败后自动尝试 GH-Proxy 镜像，不需要配置下载源。
+
+正式 APK 构建从 Gradle 输出元数据生成 `android-update.json`，发布归集时核对包体 SHA-512 并生成 `latest-android.json`、`beta-android.json` 等通道清单，不影响桌面更新清单。构建必须持续使用相同的 APK 签名密钥，旧版 APK 首次需要手动安装支持在线更新的版本。
+
+下载完成后点击「安装更新」，应用核对 APK 的包名、版本、签名和 SHA-512，再交给系统安装器。首次可能需要允许本应用安装未知来源应用；取消授权或安装后可以重试。安装成功由系统终止旧进程，用户通过系统安装界面的「打开」进入新版，自动拉起行为受 Android 和车机固件限制。
+
 ## 兼容性
 
 实际运行验证环境为 Android 15 / API 35 ARM64 模拟器，覆盖安装启动与核心播放链路。其他 Android 版本、系统 WebView 与车机固件仍需实机验证；账号登录、各平台完整歌单与 FM 续推等联网路径尚未完成完整验收。

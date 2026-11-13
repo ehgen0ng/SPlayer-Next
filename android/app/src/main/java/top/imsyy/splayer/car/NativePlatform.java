@@ -55,6 +55,12 @@ final class NativePlatform {
                         .put("arch", android.os.Build.SUPPORTED_ABIS[0])
                         .put("release", android.os.Build.VERSION.RELEASE);
                     break;
+                case "android:updateInfo": result = UpdateInstaller.info(context); break;
+                case "android:installUpdate": {
+                    MainActivity current = activity.get();
+                    if (current == null) throw new IllegalStateException("请在应用前台安装更新");
+                    return current.installUpdate(args.getString(0), args.getString(1), args.getString(2));
+                }
                 case "web:initialize": return initializeSdk();
                 case "web:evaluate": return evaluate(args.getString(0));
                 case "web:getCookies": {

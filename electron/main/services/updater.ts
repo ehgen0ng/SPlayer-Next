@@ -8,15 +8,18 @@ import { isDev, isMac, isPortable, isAppX } from "@main/utils/config";
 import { updaterLog } from "@main/utils/logger";
 import type { UpdateEvent, UpdateMeta, UpdateMode, UpdateState } from "@shared/types/update";
 import { UPDATE_CHANNELS, type UpdateChannel } from "@shared/types/settings";
+import { getMirrorDownloadUrl } from "./updateDownload";
+import { UPDATE_RELEASES_URL } from "@shared/utils/update";
 
 const { autoUpdater } = electronUpdater;
-const RELEASES_URL = "https://github.com/ehgen0ng/SPlayer-Next/releases";
+const RELEASES_URL = UPDATE_RELEASES_URL;
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /** 根据实际安装形式决定能力，解压版和开发环境只允许检查 */
 const getMode = (): UpdateMode => {
   if (isAppX) return "store";
-  if (!app.isPackaged || isDev || isMac || isPortable) return "external";
+  if (!app.isPackaged || isDev || isPortable) return "external";
+  if (isMac) return process.resourcesPath?.startsWith("/Volumes/") ? "external" : "inApp";
   if (process.platform === "win32") return "inApp";
   if (process.platform === "linux") {
     if (process.env.APPIMAGE) return "inApp";
@@ -47,12 +50,15 @@ let state: UpdateState = {
   error: null,
 };
 let generation = 0;
+let checkedInfo: UpdateInfo | null = null;
+let macArchive: string | null = null;
 let disposed = false;
 let task: {
   kind: "check" | "download";
   generation: number;
   manual: boolean;
   cancel?: CancellationToken;
+  abort?: AbortController;
 } | null = null;
 let pendingCheck: { manual: boolean } | null = null;
 let intervalTimer: ReturnType<typeof setInterval> | null = null;
@@ -126,6 +132,8 @@ const runCheck = (manual: boolean): void => {
   const current = { kind: "check" as const, generation, manual };
   task = current;
   publish({ phase: "checking", meta: null, percent: 0, error: null });
+  checkedInfo = null;
+  macArchive = null;
   void (async () => {
     try {
       applyChannel();
@@ -133,6 +141,7 @@ const runCheck = (manual: boolean): void => {
       if (disposed || current.generation !== generation) return;
       if (!result) throw new Error("当前安装形式无法检查更新");
       if (result.isUpdateAvailable) {
+        checkedInfo = result.updateInfo;
         publish(
           { phase: "available", meta: toMeta(result.updateInfo) },
           "available",
@@ -178,6 +187,7 @@ export const downloadUpdate = (): UpdateState => {
     disposed ||
     task ||
     state.mode !== "inApp" ||
+    !checkedInfo ||
     !state.meta ||
     !(
       state.phase === "available" ||
@@ -191,12 +201,51 @@ export const downloadUpdate = (): UpdateState => {
     generation,
     manual: true,
     cancel: new CancellationToken(),
+    abort: new AbortController(),
   };
   task = current;
+  const info = checkedInfo;
+  const channel = state.channel;
   publish({ phase: "downloading", percent: 0, error: null });
   void (async () => {
     try {
-      await autoUpdater.downloadUpdate(current.cancel);
+      if (isMac) {
+        const { downloadMacUpdate } = await import("./macUpdater");
+        const archive = await downloadMacUpdate(info, channel, current.abort.signal, (percent) =>
+          onProgress({ percent }),
+        );
+        if (!disposed && current.generation === generation) macArchive = archive;
+      } else {
+        try {
+          await autoUpdater.downloadUpdate(current.cancel);
+        } catch (error) {
+          if (
+            process.platform !== "win32" ||
+            disposed ||
+            current.generation !== generation ||
+            /sha512|checksum|signature|digest/i.test(String(error))
+          ) {
+            throw error;
+          }
+          // 镜像清单必须与直连时取得的摘要完全一致，才能重试下载
+          const tag = channel === "nightly" ? "nightly" : `v${info.version}`;
+          autoUpdater.setFeedURL({
+            provider: "generic",
+            url: getMirrorDownloadUrl(`${RELEASES_URL}/download/${encodeURIComponent(tag)}/`),
+          });
+          const result = await autoUpdater.checkForUpdates();
+          if (disposed || current.generation !== generation) return;
+          if (
+            !result ||
+            result.updateInfo.version !== info.version ||
+            JSON.stringify(result.updateInfo.files) !== JSON.stringify(info.files)
+          ) {
+            throw new Error("镜像更新清单与原仓库不一致");
+          }
+          publish({ percent: 0 });
+          await autoUpdater.downloadUpdate(current.cancel);
+        }
+      }
       if (!disposed && current.generation === generation) {
         publish({ phase: "downloaded", percent: 100 }, "downloaded", true);
       }
@@ -224,6 +273,8 @@ export const syncUpdateChannel = (): void => {
   const channel = getChannel();
   if (state.channel === channel) return;
   generation++;
+  checkedInfo = null;
+  macArchive = null;
   publish({
     channel,
     phase: task?.kind === "download" ? "cancelling" : "idle",
@@ -233,6 +284,7 @@ export const syncUpdateChannel = (): void => {
   });
   pendingCheck = { manual: true };
   task?.cancel?.cancel();
+  task?.abort?.abort();
   if (!task) {
     pendingCheck = null;
     runCheck(true);
@@ -258,7 +310,16 @@ export const quitAndInstall = (): UpdateState => {
   }
   publish({ phase: "installing", error: null });
   try {
-    autoUpdater.quitAndInstall();
+    if (isMac) {
+      if (!macArchive) throw new Error("没有已校验的 macOS 更新包");
+      const archive = macArchive;
+      const version = state.meta!.version;
+      void import("./macUpdater")
+        .then(({ installMacUpdate }) => installMacUpdate(archive, version))
+        .catch((error) => onError(error instanceof Error ? error : new Error(String(error))));
+    } else {
+      autoUpdater.quitAndInstall();
+    }
   } catch (error) {
     onError(error instanceof Error ? error : new Error(String(error)));
   }
@@ -321,6 +382,7 @@ export const disposeUpdater = (): void => {
   generation++;
   pendingCheck = null;
   task?.cancel?.cancel();
+  task?.abort?.abort();
   if (intervalTimer) clearInterval(intervalTimer);
   intervalTimer = null;
   if (!task) removeListeners();

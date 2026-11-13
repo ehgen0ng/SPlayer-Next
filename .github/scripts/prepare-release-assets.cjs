@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const yaml = require("js-yaml");
+const { createHash } = require("node:crypto");
 
 const MANIFEST_SUFFIXES = ["", "-mac", "-linux", "-linux-arm64"];
 const SKIP_FILES = new Set(["builder-debug.yml", "builder-effective-config.yaml"]);
@@ -173,6 +174,42 @@ const prepareReleaseAssets = (srcDir, outDir, version, releaseNotes) => {
       doc.releaseNotes = releaseNotes;
       fs.writeFileSync(manifest, yaml.dump(doc, { lineWidth: -1 }));
     }
+  }
+
+  const androidMetadata = path.join(outDir, "android-update.json");
+  if (fs.existsSync(androidMetadata)) {
+    const manifest = JSON.parse(fs.readFileSync(androidMetadata, "utf8"));
+    if (
+      manifest.version !== version ||
+      !Number.isSafeInteger(manifest.versionCode) ||
+      manifest.versionCode <= 0 ||
+      typeof manifest.file !== "string" ||
+      path.basename(manifest.file) !== manifest.file ||
+      !manifest.file.endsWith("-release.apk") ||
+      manifest.abi !== "arm64-v8a"
+    ) {
+      throw new Error("安卓更新清单的版本或附件信息无效");
+    }
+    const apkPath = path.join(outDir, manifest.file);
+    const hash = createHash("sha512");
+    const fd = fs.openSync(apkPath, "r");
+    try {
+      const buffer = Buffer.alloc(65536);
+      let count;
+      while ((count = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0)
+        hash.update(buffer.subarray(0, count));
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (fs.statSync(apkPath).size !== manifest.size || hash.digest("base64") !== manifest.sha512) {
+      throw new Error("安卓更新包与清单摘要不一致");
+    }
+    for (const name of [channel, ...(ALIAS_CHANNELS_MAP[channel] ?? [])]) {
+      fs.copyFileSync(androidMetadata, path.join(outDir, `${name}-android.json`));
+    }
+    fs.rmSync(androidMetadata);
+  } else if ([...seen].some((name) => name.endsWith("-release.apk"))) {
+    throw new Error("签名 APK 缺少安卓更新清单");
   }
 
   createChannelAliases(outDir, channel);

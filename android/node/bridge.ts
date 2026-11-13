@@ -35,9 +35,9 @@ export const invokeNative = <T>(channel: string, ...args: unknown[]): Promise<T>
   if (pending.size >= 64) return Promise.reject(new Error("原生请求过多"));
   const id = `node:${++sequence}`;
   return new Promise<T>((resolve, reject) => {
-    // 文档选择由用户关闭或 Activity 销毁结束，不应用网络请求的等待期限
+    // 文档选择和安装授权由用户关闭或 Activity 销毁结束
     const timer =
-      channel === "system:pickPlugin"
+      channel === "system:pickPlugin" || channel === "android:installUpdate"
         ? undefined
         : setTimeout(() => {
             pending.delete(id);

@@ -59,7 +59,7 @@ const androidSections: Record<string, readonly string[]> = {
   plugins: ["pluginManage", "pluginsList"],
   other: ["platformLogin", "platformConfig", "preset"],
   localCache: ["songCache", "cache"],
-  about: [],
+  about: ["update"],
 };
 const desktopItems = new Set([
   "cjkTransform",

@@ -143,6 +143,7 @@ const config: Configuration = {
     artifactName: "${productName}-${version}-${arch}-portable.${ext}",
   },
   mac: {
+    extraResources: [{ from: "resources/update-mac.sh", to: "update-mac.sh" }],
     executableName: "SPlayer-Next",
     icon: "public/icons/icon.icns",
     artifactName: "${productName}-${version}-${arch}.${ext}",

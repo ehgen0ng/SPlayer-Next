@@ -153,7 +153,7 @@ onMounted(async () => {
             {{ t("settings.storeVersion") }}
           </STag>
         </div>
-        <div v-if="!isAndroid" class="flex items-center gap-2">
+        <div class="flex items-center gap-2">
           <SButton
             variant="secondary"
             :loading="checking"
@@ -171,14 +171,13 @@ onMounted(async () => {
                     : t("settings.about.checkUpdate")
             }}
           </SButton>
-          <SButton variant="secondary" @click="handleOpenLogs">
+          <SButton v-if="!isAndroid" variant="secondary" @click="handleOpenLogs">
             {{ t("settings.about.openLogs") }}
           </SButton>
         </div>
       </SCard>
     </section>
     <SettingsSection
-      v-if="!isAndroid"
       class="!mb-0"
       :section="updateSection"
       :highlight-key="highlightKey"

@@ -25,6 +25,7 @@ import type { AndroidPlaybackSnapshot } from "@shared/types/android";
 import { audioSourcePreferencesSchema } from "@shared/types/audioSource";
 import { fetchPersonalFm, submitFmTrash } from "@/apis/recommend/netease";
 import { searchSongs } from "@/apis/search";
+import { getAndroidUpdateState, registerAndroidUpdater, syncAndroidUpdateChannel } from "./updater";
 
 /** 初始化共享业务，只在应用进程中运行一次 */
 const start = async (): Promise<void> => {
@@ -47,6 +48,7 @@ const start = async (): Promise<void> => {
   registerPlaylistIpc();
   registerPluginIpc();
   registerStatsIpc();
+  registerAndroidUpdater();
   ipcMain.handle("fm:more", (_event, options) => fetchPersonalFm(options));
   ipcMain.handle("fm:dislike", (_event, id: string, playedSeconds: number) =>
     submitFmTrash(id, playedSeconds),
@@ -64,15 +66,25 @@ const start = async (): Promise<void> => {
   ipcMain.handle("config:get", (_event, key: string) => store.get(key as ConfigPath));
   ipcMain.handle("config:getAll", () => store.store);
   ipcMain.handle("config:set", async (_event, key: string, value: unknown) => {
+    if (key === "update.channel" && getAndroidUpdateState().phase === "installing") {
+      throw new Error("安装启动中，无法切换更新通道");
+    }
+    if (key.startsWith("update.")) {
+      if (key === "update.channel") z.enum(["stable", "beta"]).parse(value);
+      if (key === "update.autoCheck") z.boolean().parse(value);
+    }
     if (key === "cache.songCache.sizeLimitGb") {
       const size = z.number().positive().finite().parse(value);
       await invokeNative("cache:setLimit", size * 1024 ** 3);
     }
     store.set(key, value);
     store.flushImmediate();
+    syncAndroidUpdateChannel();
   });
   ipcMain.handle("config:reset", async () => {
+    if (getAndroidUpdateState().phase === "installing") throw new Error("安装启动中，无法重置配置");
     store.clear();
+    syncAndroidUpdateChannel();
     store.flushImmediate();
     await invokeNative("cache:setLimit", store.get("cache.songCache.sizeLimitGb") * 1024 ** 3);
   });

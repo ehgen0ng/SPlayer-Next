@@ -7,6 +7,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
 const yaml = require("js-yaml");
+const { createHash } = require("node:crypto");
 const { prepareReleaseAssets, resolveChannel } = require("./prepare-release-assets.cjs");
 
 const createArtifact = (dir, name, content) => {
@@ -194,8 +195,23 @@ test("安卓 APK 随桌面资源归集且不进入桌面自动更新清单", () 
     const name = "SPlayer-Next-1.2.1-fork.2-android-arm64-v8a-release.apk";
     createFixture(src, "1.2.1-fork.2", "latest");
     createArtifact(path.join(src, "android"), name, Buffer.from("signed-apk"));
+    const manifest = {
+      version: "1.2.1-fork.2",
+      versionCode: 10201702,
+      abi: "arm64-v8a",
+      file: name,
+      sha512: createHash("sha512").update("signed-apk").digest("base64"),
+      size: 10,
+    };
+    fs.writeFileSync(path.join(src, "android/android-update.json"), JSON.stringify(manifest));
     prepareReleaseAssets(src, out, "1.2.1-fork.2");
     assert.equal(fs.readFileSync(path.join(out, name), "utf8"), "signed-apk");
+    for (const channel of ["latest", "beta", "alpha"]) {
+      assert.deepEqual(
+        JSON.parse(fs.readFileSync(path.join(out, `${channel}-android.json`), "utf8")),
+        manifest,
+      );
+    }
     for (const file of fs.readdirSync(out).filter((file) => file.endsWith(".yml"))) {
       const manifest = yaml.load(fs.readFileSync(path.join(out, file), "utf8"));
       assert.ok(manifest.files.every((asset) => !asset.url.endsWith(".apk")));
@@ -213,6 +229,38 @@ test("安卓 APK 随桌面资源归集且不进入桌面自动更新清单", () 
       (step) => step.uses === "./.github/actions/build-android",
     );
     assert.equal(androidStep.with.release, "true");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("签名 APK 缺少清单或摘要不一致时拒绝发布", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "splayer-release-android-invalid-"));
+  try {
+    const src = path.join(root, "artifacts");
+    const version = "1.2.1-fork.3";
+    const name = `SPlayer-Next-${version}-android-arm64-v8a-release.apk`;
+    createFixture(src, version, "latest");
+    createArtifact(path.join(src, "android"), name, Buffer.from("signed-apk"));
+    assert.throws(
+      () => prepareReleaseAssets(src, path.join(root, "missing"), version),
+      /缺少安卓更新清单/,
+    );
+    fs.writeFileSync(
+      path.join(src, "android/android-update.json"),
+      JSON.stringify({
+        version,
+        versionCode: 10201703,
+        abi: "arm64-v8a",
+        file: name,
+        size: 10,
+        sha512: createHash("sha512").update("other-apk").digest("base64"),
+      }),
+    );
+    assert.throws(
+      () => prepareReleaseAssets(src, path.join(root, "invalid"), version),
+      /摘要不一致/,
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

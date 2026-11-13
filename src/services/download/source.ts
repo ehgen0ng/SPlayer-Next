@@ -29,7 +29,7 @@ export interface DownloadSource {
 }
 
 /**
- * 按下载音质解析歌曲下载地址
+ * 按下载音质解析地址，插件优先时比较全部候选
  * @param track - 要下载的歌曲
  * @param level - 下载音质档位
  * @param usePlaybackForDownload - 是否允许使用播放源下载
@@ -122,6 +122,7 @@ export const resolveDownloadSource = async (
     return null;
   }
   const selected = await selectAudioSource(level, resolveNext, {
+    waitForAll: true,
     track,
     verifyArtist: settings.verifySourceArtist,
     verifyDuration: settings.verifySourceDuration,

@@ -1,5 +1,8 @@
 {
   "update": {
+    "installApk": "Install Update",
+    "installingApk": "Complete installation in the system window",
+    "apkReadyToast": "Update downloaded — ready to install",
     "dialogTitle": "New Version Available",
     "later": "Later",
     "download": "Download",

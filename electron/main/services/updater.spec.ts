@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   open: vi.fn(),
   cancel: vi.fn(),
+  macDownload: vi.fn(),
+  macInstall: vi.fn(),
 }));
 vi.mock("electron", () => ({
   app: {
@@ -43,6 +45,10 @@ vi.mock("@main/utils/config", () => ({
 }));
 vi.mock("@main/store", () => ({
   store: { get: (key: string) => (key === "update.channel" ? mocks.channel : mocks.autoCheck) },
+}));
+vi.mock("./macUpdater", () => ({
+  downloadMacUpdate: mocks.macDownload,
+  installMacUpdate: mocks.macInstall,
 }));
 vi.mock("@main/utils/broadcast", () => ({ sendToMain: mocks.send }));
 vi.mock("@main/utils/logger", () => ({ updaterLog: { error: vi.fn() } }));
@@ -82,7 +88,7 @@ const deferred = <T>() => {
 
 const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform")!;
 
-describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
+describe.each(["win32", "linux", "darwin"])("统一更新任务（%s）", (platform) => {
   beforeEach(() => {
     // 显式模拟安装平台，避免普通 Node 环境误入 Electron 安装包检测
     Object.defineProperty(process, "platform", { ...platformDescriptor, value: platform });
@@ -94,13 +100,15 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
       autoCheck: true,
       packaged: true,
       dev: false,
-      mac: false,
+      mac: platform === "darwin",
       portable: false,
       appx: false,
     });
     mocks.check.mockReset().mockResolvedValue(available);
     mocks.download.mockReset().mockResolvedValue([]);
     mocks.install.mockReset();
+    mocks.macDownload.mockReset().mockResolvedValue("/cache/update.zip");
+    mocks.macInstall.mockReset().mockResolvedValue(undefined);
   });
   afterEach(async () => {
     try {
@@ -161,12 +169,15 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
 
   it("取消下载后等待旧 Promise 结束再切换 provider，旧成功不能恢复安装资格", async () => {
     const pending = deferred<string[]>();
-    mocks.download.mockReturnValueOnce(pending.promise);
+    (platform === "darwin" ? mocks.macDownload : mocks.download).mockReturnValueOnce(
+      pending.promise,
+    );
     const service = await import("./updater");
     service.initUpdater();
     service.checkForUpdates(true);
     await flushPromises();
     service.downloadUpdate();
+    await flushPromises();
     mocks.check.mockResolvedValueOnce(none);
     mocks.channel = "beta";
     service.syncUpdateChannel();
@@ -175,7 +186,7 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
     expect(mocks.feed).toHaveBeenCalledTimes(1);
     service.downloadUpdate();
     service.quitAndInstall();
-    expect(mocks.download).toHaveBeenCalledTimes(1);
+    expect(platform === "darwin" ? mocks.macDownload : mocks.download).toHaveBeenCalledTimes(1);
     expect(mocks.install).not.toHaveBeenCalled();
     const updater = (await import("electron-updater")).default.autoUpdater;
     updater.emit("download-progress", {
@@ -218,7 +229,10 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
   });
 
   it("下载失败后手动检查刷新目标，自动检查不干扰错误状态", async () => {
-    mocks.download.mockRejectedValueOnce(new Error("old nightly removed"));
+    (platform === "darwin" ? mocks.macDownload : mocks.download).mockRejectedValueOnce(
+      new Error("old nightly removed"),
+    );
+    if (platform === "win32") mocks.download.mockRejectedValueOnce(new Error("mirror network"));
     const service = await import("./updater");
     service.initUpdater();
     service.checkForUpdates(true);
@@ -226,7 +240,7 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
     service.downloadUpdate();
     await flushPromises();
     service.checkForUpdates(false);
-    expect(mocks.check).toHaveBeenCalledTimes(1);
+    expect(mocks.check).toHaveBeenCalledTimes(platform === "win32" ? 2 : 1);
     mocks.check.mockResolvedValueOnce({ ...available, updateInfo: { ...info, version: "1.4.0" } });
     service.checkForUpdates(true);
     expect(service.getUpdateState()).toMatchObject({ phase: "checking", meta: null });
@@ -238,7 +252,10 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
   });
 
   it("下载失败与安装失败保留对应的重试目标", async () => {
-    mocks.download.mockRejectedValueOnce(new Error("network"));
+    (platform === "darwin" ? mocks.macDownload : mocks.download).mockRejectedValueOnce(
+      new Error("network"),
+    );
+    if (platform === "win32") mocks.download.mockRejectedValueOnce(new Error("mirror network"));
     const service = await import("./updater");
     service.initUpdater();
     service.checkForUpdates(true);
@@ -251,19 +268,22 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
       meta: { version: "1.3.0" },
     });
     service.checkForUpdates(false);
-    expect(mocks.check).toHaveBeenCalledTimes(1);
+    expect(mocks.check).toHaveBeenCalledTimes(platform === "win32" ? 2 : 1);
     service.downloadUpdate();
     await flushPromises();
-    mocks.install.mockImplementationOnce(() => {
+    const installMock = platform === "darwin" ? mocks.macInstall : mocks.install;
+    installMock.mockImplementationOnce(() => {
       throw new Error("installer");
     });
     service.quitAndInstall();
+    await flushPromises();
     expect(service.getUpdateState()).toMatchObject({
       phase: "error",
       error: { source: "install" },
     });
     service.quitAndInstall();
-    expect(mocks.install).toHaveBeenCalledTimes(2);
+    await flushPromises();
+    expect(installMock).toHaveBeenCalledTimes(2);
   });
 
   it("下载及检查去重，手动加入自动检查仍能收到结果提示", async () => {
@@ -284,7 +304,7 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
     );
   });
 
-  it.each(["dev", "mac", "portable"] as const)("%s 环境只能检查和打开外部下载", async (flag) => {
+  it.each(["dev", "portable"] as const)("%s 环境只能检查和打开外部下载", async (flag) => {
     mocks[flag] = true;
     const service = await import("./updater");
     service.initUpdater();
@@ -313,12 +333,15 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
 
   it("销毁时取消下载，迟到错误不会重新检查或产生未处理 error", async () => {
     const pending = deferred<string[]>();
-    mocks.download.mockReturnValueOnce(pending.promise);
+    (platform === "darwin" ? mocks.macDownload : mocks.download).mockReturnValueOnce(
+      pending.promise,
+    );
     const service = await import("./updater");
     service.initUpdater();
     service.checkForUpdates(true);
     await flushPromises();
     service.downloadUpdate();
+    await flushPromises();
     service.disposeUpdater();
     const updater = (await import("electron-updater")).default.autoUpdater;
     expect(() => updater.emit("error", new Error("cancelled"))).not.toThrow();
@@ -326,5 +349,61 @@ describe.each(["win32", "linux"])("统一更新任务（%s）", (platform) => {
     await flushPromises();
     expect(updater.listenerCount("error")).toBe(0);
     expect(mocks.check).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Windows 更新镜像回退", () => {
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", { ...platformDescriptor, value: "win32" });
+    vi.resetModules();
+    vi.clearAllMocks();
+    Object.assign(mocks, {
+      channel: "stable",
+      autoCheck: true,
+      packaged: true,
+      dev: false,
+      mac: false,
+      portable: false,
+      appx: false,
+    });
+    mocks.check.mockReset().mockResolvedValue(available);
+    mocks.download.mockReset().mockRejectedValueOnce(new Error("network")).mockResolvedValue([]);
+  });
+  afterEach(async () => {
+    (await import("./updater")).disposeUpdater();
+    Object.defineProperty(process, "platform", platformDescriptor);
+  });
+  it("直连失败后校对镜像清单并重试，安装调用保持原样", async () => {
+    const service = await import("./updater");
+    service.initUpdater();
+    service.checkForUpdates(true);
+    await flushPromises();
+    service.downloadUpdate();
+    await flushPromises();
+    expect(mocks.feed).toHaveBeenLastCalledWith({
+      provider: "generic",
+      url: "https://gh-proxy.org/https://github.com/ehgen0ng/SPlayer-Next/releases/download/v1.3.0/",
+    });
+    expect(mocks.download).toHaveBeenCalledTimes(2);
+    expect(service.getUpdateState().phase).toBe("downloaded");
+    service.quitAndInstall();
+    expect(mocks.install).toHaveBeenCalledWith();
+  });
+  it("拒绝镜像中不同的摘要", async () => {
+    mocks.check.mockResolvedValueOnce(available).mockResolvedValueOnce({
+      ...available,
+      updateInfo: { ...info, files: [{ ...info.files[0], sha512: "changed" }] },
+    });
+    const service = await import("./updater");
+    service.initUpdater();
+    service.checkForUpdates(true);
+    await flushPromises();
+    service.downloadUpdate();
+    await flushPromises();
+    expect(service.getUpdateState()).toMatchObject({
+      phase: "error",
+      error: { source: "download" },
+    });
+    expect(mocks.download).toHaveBeenCalledOnce();
   });
 });

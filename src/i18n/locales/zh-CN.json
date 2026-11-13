@@ -1,5 +1,8 @@
 {
   "update": {
+    "installApk": "安装更新",
+    "installingApk": "请在系统窗口中完成安装",
+    "apkReadyToast": "更新包已下载，可安装更新",
     "dialogTitle": "发现新版本",
     "later": "稍后",
     "download": "下载",

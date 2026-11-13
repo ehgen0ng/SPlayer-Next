@@ -2,16 +2,10 @@
   "name": "splayer-next",
   "productName": "SPlayer-Next",
   "desktopName": "top.imsyy.splayer_next",
-  "version": "1.2.1-fork.3",
+  "version": "1.2.1-fork.4",
   "description": "Cross-platform desktop music player with rich lyric support and wide audio format compatibility",
   "type": "module",
-  "packageManager": "pnpm@12.15.0",
   "main": "./out/main/index.js",
-  "author": {
-    "name": "imsyy",
-    "email": "imsyy1024@gmail.com",
-    "url": "https://imsyy.top"
-  },
   "homepage": "https://github.com/ehgen0ng/SPlayer-Next",
   "repository": {
     "type": "git",

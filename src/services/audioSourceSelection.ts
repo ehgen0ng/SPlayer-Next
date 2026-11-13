@@ -18,7 +18,7 @@ export interface SourceSelectionAttempt {
 export interface SourceSelectionHost {
   pluginIds: readonly string[];
   pluginQualities?: ReadonlyMap<string, readonly QualityLevel[] | undefined>;
-  /** 后台预缓存等待全部候选，前台取得达标结果后停止扩展请求 */
+  /** 下载与后台预缓存等待全部候选，前台达标后停止扩展请求 */
   waitForAll?: boolean;
   probe: (url: string) => Promise<IpcResponse<AudioSourceProbe>>;
   track?: Pick<Track, "artists" | "duration">;

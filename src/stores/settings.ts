@@ -244,8 +244,8 @@ export const useSettingsStore = defineStore(
       amllResetLineTimestamps: true,
     });
 
-    /** 系统配置 - 传递主进程 */
-    const system = reactive<SystemConfig>(structuredClone(defaultSystemConfig));
+    /** 按配置的 JSON 格式深拷贝，兼容缺少 structuredClone 的 WebView */
+    const system = reactive<SystemConfig>(JSON.parse(JSON.stringify(defaultSystemConfig)));
 
     /** 桌面歌词窗口是否打开；由主进程广播 */
     const isDesktopLyricOpen = ref(false);

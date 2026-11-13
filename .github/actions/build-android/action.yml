@@ -55,5 +55,7 @@ runs:
     - uses: actions/upload-artifact@v7
       with:
         name: SPlayer-Next-android-arm64-v8a
-        path: dist/android/*.apk
+        path: |
+          dist/android/*.apk
+          dist/android/android-update.json
         if-no-files-found: error

@@ -37,22 +37,22 @@ export const useUpdateStore = defineStore("update", () => {
     if (event.state.revision <= lastNotification || !event.notification) return;
     lastNotification = event.state.revision;
     if (event.notification === "available") dialogOpen.value = true;
-    if (event.notification === "downloaded") toast.success(t("update.readyToast"));
+    if (event.notification === "downloaded")
+      toast.success(t(isAndroid ? "update.apkReadyToast" : "update.readyToast"));
     if (event.notification === "upToDate" && event.manual) toast.success(t("update.upToDate"));
     if (event.notification === "error" && event.manual) toast.error(t("update.failed"));
   };
 
-  const unsubscribe = isAndroid ? () => {} : window.api.update.onEvent(handleEvent);
+  const unsubscribe = window.api.update.onEvent(handleEvent);
   onScopeDispose(unsubscribe);
-  if (!isAndroid)
-    void window.api.update
-      .getState()
-      .then(async (state) => {
-        applyState(state);
-        if (phase.value === "idle" && mode.value !== "store")
-          applyState(await window.api.update.check(false));
-      })
-      .catch(console.warn);
+  void window.api.update
+    .getState()
+    .then(async (state) => {
+      applyState(state);
+      if (phase.value === "idle" && mode.value !== "store")
+        applyState(await window.api.update.check(false));
+    })
+    .catch(console.warn);
 
   /** 检查入口统一处理已有更新和商店安装形式。 */
   const checkManually = (): void => {

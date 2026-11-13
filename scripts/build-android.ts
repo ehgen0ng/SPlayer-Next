@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
-import { access, copyFile, mkdir, readFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import type { AndroidUpdateManifest } from "../shared/types/update";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { createServer } from "vite";
@@ -89,6 +92,31 @@ try {
   );
   await mkdir(path.dirname(destination), { recursive: true });
   await copyFile(source, destination);
+  if (mode === "release") {
+    const metadata = JSON.parse(
+      await readFile(path.join(path.dirname(source), "output-metadata.json"), "utf8"),
+    );
+    const output = metadata.elements.find(
+      (item: { outputFile: string }) => item.outputFile === path.basename(source),
+    );
+    if (!output || output.versionName !== version || !Number.isSafeInteger(output.versionCode)) {
+      throw new Error("APK 输出元数据与当前版本不一致");
+    }
+    const hash = createHash("sha512");
+    for await (const chunk of createReadStream(destination)) hash.update(chunk);
+    const manifest: AndroidUpdateManifest = {
+      version,
+      versionCode: output.versionCode,
+      abi: "arm64-v8a",
+      file: path.basename(destination),
+      sha512: hash.digest("base64"),
+      size: (await stat(destination)).size,
+    };
+    await writeFile(
+      path.join(path.dirname(destination), "android-update.json"),
+      JSON.stringify(manifest, null, 2),
+    );
+  }
   console.info(`APK: ${destination}`);
   if (server) {
     const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
