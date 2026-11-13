@@ -39,6 +39,7 @@ const LX_TO_HOST_QUALITY: Record<string, PluginQuality> = {
   lossless: "lossless",
   sq: "lossless",
   flac24bit: "hi-res",
+  "24bit": "hi-res",
   hires: "hi-res",
   "hi-res": "hi-res",
 };
@@ -295,12 +296,12 @@ export const normalizeLxMusicInfo = (
 
 /**
  * 安装 lx 兼容层
- * @param sandboxGlobal 沙箱上下文对象（vm.createContext 前的 plain object）
- * @param splayer 宿主 API 实例
- * @param handlers 共享的 action handler 注册表
- * @param onSources 脚本通过 lx.send('inited', {sources}) 注册能力时的回调
- * @param onUpdateAvailable 脚本通过 lx.send('updateAlert', ...) 上报新版本时的回调
- * @param scriptInfo lx 脚本 currentScriptInfo（主进程解析完头注释后传入）
+ * @param sandboxGlobal - 创建上下文前的沙箱对象
+ * @param splayer - 宿主请求和日志接口
+ * @param handlers - 共享动作处理器表
+ * @param onSources - 脚本完成初始化并声明音源能力后的回调
+ * @param onUpdateAvailable - 脚本上报新版本后的回调
+ * @param scriptInfo - 主进程解析的脚本信息和源码
  */
 export const installLxShim = (
   sandboxGlobal: Record<string, unknown>,
@@ -313,6 +314,7 @@ export const installLxShim = (
   let requestHandler: LxRequestHandler | null = null;
   let inited = false;
   let updateAlerted = false;
+  const sourceQualityTypes = new Map<string, Partial<Record<PluginQuality, string>>>();
 
   const lxApi = {
     EVENT_NAMES,
@@ -463,9 +465,13 @@ export const installLxShim = (
             for (const [key, cap] of Object.entries(rawSources)) {
               const rawQualities = cap.qualitys ?? cap.qualities ?? [];
               const mapped = new Set<PluginQuality>();
+              const qualityTypes: Partial<Record<PluginQuality, string>> = {};
               for (const q of rawQualities) {
                 const host = mapLxQualityToHost(q);
-                if (host) mapped.add(host);
+                if (host) {
+                  mapped.add(host);
+                  if (!qualityTypes[host] || q === HOST_TO_LX_QUALITY[host]) qualityTypes[host] = q;
+                }
               }
               const actions = (cap.actions ?? []).filter(
                 (action): action is PluginAction => action === "musicUrl",
@@ -473,10 +479,11 @@ export const installLxShim = (
               // 不支持任何宿主已识别动作的源直接丢弃，避免 audioSource 误把
               // lyric-only 脚本当成 musicUrl 候选去调，结果走到归一校验抛 PLUGIN_INVALID_RESULT
               if (actions.length === 0) continue;
+              sourceQualityTypes.set(key, qualityTypes);
               normalized[key] = {
                 name: cap.name ?? key,
                 actions,
-                qualities: Array.from(mapped),
+                qualities: rawQualities.length ? Array.from(mapped) : undefined,
               };
             }
             onSources(normalized);
@@ -540,7 +547,9 @@ export const installLxShim = (
       const source = reqObj.source ?? "";
       // lx 期待 128k/320k/flac/... 音质字符串，宿主的 quality 做一次翻译
       const hostQuality = reqObj.quality;
-      const lxType = hostQuality ? mapHostQualityToLx(hostQuality) : undefined;
+      const lxType = hostQuality
+        ? (sourceQualityTypes.get(source)?.[hostQuality] ?? mapHostQualityToLx(hostQuality))
+        : undefined;
       const info = {
         type: lxType,
         musicInfo: normalizeLxMusicInfo(reqObj.musicInfo, source),

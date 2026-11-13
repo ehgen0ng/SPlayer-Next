@@ -9,6 +9,7 @@ import androidx.media3.common.Player;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.LoadControl;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -50,7 +51,9 @@ final class NextTrackPreloader implements Player.Listener, PreloadManagerListene
         this.player = player;
         this.resolver = resolver;
         handler = new Handler(player.getApplicationLooper());
-        DefaultMediaSourceFactory sources = new DefaultMediaSourceFactory(data)
+        DataSource.Factory backgroundData = new ResolvingDataSource.Factory(data,
+            spec -> spec.buildUpon().setCustomData(Boolean.TRUE).build());
+        DefaultMediaSourceFactory sources = new DefaultMediaSourceFactory(backgroundData)
             .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy() {
                 /**
                  * 共享选源已尝试插件与音质降级，预载失败后直接换候选

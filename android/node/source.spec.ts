@@ -131,10 +131,12 @@ describe("车机选源 IPC 入口", () => {
       "hq",
       preferences,
       "next",
+      true,
     ]);
     const cancelled = expect(preload).rejects.toThrow("音源解析已取消");
     await flushPromises();
     const signals = mocks.resolve.mock.calls.map((args) => args[4].signal as AbortSignal);
+    expect(mocks.resolve.mock.calls.map((args) => args[4].waitForAll)).toEqual([false, true]);
     expect(signals.map((signal) => signal.aborted)).toEqual([false, false]);
     mocks.events.get("android:cancelSource")!("next");
     expect(signals.map((signal) => signal.aborted)).toEqual([false, true]);

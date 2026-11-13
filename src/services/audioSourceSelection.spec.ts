@@ -104,7 +104,7 @@ describe("公共并发选源", () => {
     expect(probe).toHaveBeenCalledExactlyOnceWith("audio");
   });
 
-  it("全部候选在任意结果返回前启动，同音质按排序而非完成顺序选择", async () => {
+  it("预缓存启动全部候选并等待全部结果，同音质按排序而非完成顺序选择", async () => {
     const pluginIds = ["a", "b", "c", "d", "e"];
     const finish = new Map<string, (value: { pluginId: string; url: string }) => void>();
     const resolve = vi.fn((attempt: SourceSelectionAttempt) => {
@@ -113,12 +113,94 @@ describe("公共并发选源", () => {
     });
     const result = selectAudioSource("lossless", resolve, {
       pluginIds,
+      waitForAll: true,
       probe: async () => ({ success: true, data: lossless }),
     });
     expect([...finish.keys()]).toEqual(pluginIds);
     for (const id of [...pluginIds].reverse()) finish.get(id)!({ pluginId: id, url: id });
     expect((await result)?.source.pluginId).toBe("a");
     expect(resolve).toHaveBeenCalledTimes(5);
+  });
+
+  it("前台只启动两个候选，达标后不等慢源也不再启动排队来源", async () => {
+    const pluginIds = ["slow", "fast", "queued"];
+    let finishSlow!: (value: { pluginId: string; url: string }) => void;
+    const resolve = vi.fn(async (attempt: SourceSelectionAttempt) => {
+      const id = pluginIds.find((id) => !attempt.skipPluginIds.includes(id))!;
+      if (id === "slow")
+        return new Promise<{ pluginId: string; url: string }>((done) => {
+          finishSlow = done;
+        });
+      return { pluginId: id, url: id };
+    });
+    const probe = vi.fn(async () => ({ success: true, data: hires }));
+    const result = await selectAudioSource("hi-res", resolve, { pluginIds, probe });
+    expect(result?.source.pluginId).toBe("fast");
+    expect(resolve).toHaveBeenCalledTimes(2);
+    finishSlow({ pluginId: "slow", url: "late" });
+    await Promise.resolve();
+    expect(probe).toHaveBeenCalledExactlyOnceWith("fast");
+  });
+
+  it("预缓存等待较慢的高码率结果，前台已达标不会影响后台择优", async () => {
+    const pluginIds = ["fast", "slow"];
+    let finishSlow!: (value: { pluginId: string; url: string }) => void;
+    const resolve = async (attempt: SourceSelectionAttempt) => {
+      const id = pluginIds.find((id) => !attempt.skipPluginIds.includes(id))!;
+      return id === "slow"
+        ? new Promise<{ pluginId: string; url: string }>((done) => {
+            finishSlow = done;
+          })
+        : { pluginId: id, url: id };
+    };
+    let settled = false;
+    const probe = vi.fn(async (url: string) => ({
+      success: true,
+      data: { ...hires, bitRate: url === "slow" ? 3000000 : 1500000 },
+    }));
+    const selection = selectAudioSource("hi-res", resolve, {
+      pluginIds,
+      probe,
+      waitForAll: true,
+    }).then((value) => {
+      settled = true;
+      return value;
+    });
+    await vi.waitFor(() => expect(probe).toHaveBeenCalledWith("fast"));
+    expect(settled).toBe(false);
+    finishSlow({ pluginId: "slow", url: "slow" });
+    expect((await selection)?.source.pluginId).toBe("slow");
+  });
+
+  it("自动降档跳过未声明音质，低档请求取得的真实 24 bit 仍可识别为 Hi-Res", async () => {
+    const resolve = vi.fn(async (attempt: SourceSelectionAttempt) =>
+      attempt.skipOfficialOnline ? { pluginId: "a", url: "audio" } : null,
+    );
+    const result = await selectAudioSource("hi-res", resolve, {
+      pluginIds: ["a"],
+      pluginQualities: new Map([["a", ["lossless"]]]),
+      probe: async () => ({ success: true, data: hires }),
+    });
+    expect(result?.quality).toEqual(hires);
+    expect(
+      resolve.mock.calls
+        .filter(([attempt]) => attempt.skipOfficialOnline)
+        .map(([attempt]) => attempt.quality),
+    ).toEqual(["lossless"]);
+  });
+
+  it("前后台取消不等待永不返回的插件", async () => {
+    for (const waitForAll of [false, true]) {
+      const abort = new AbortController();
+      const result = selectAudioSource("hi-res", async () => new Promise(() => {}), {
+        pluginIds: ["a"],
+        waitForAll,
+        signal: abort.signal,
+        probe: vi.fn(),
+      });
+      abort.abort();
+      expect(await result).toBeNull();
+    }
   });
 
   it("降级复用已达标来源，只重试仍未达标者，同一地址仅探测一次", async () => {

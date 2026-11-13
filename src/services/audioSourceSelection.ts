@@ -17,6 +17,9 @@ export interface SourceSelectionAttempt {
 /** 平台只提供候选顺序和实际音质探测，选择规则由公共流程负责 */
 export interface SourceSelectionHost {
   pluginIds: readonly string[];
+  pluginQualities?: ReadonlyMap<string, readonly QualityLevel[] | undefined>;
+  /** 后台预缓存等待全部候选，前台取得达标结果后停止扩展请求 */
+  waitForAll?: boolean;
   probe: (url: string) => Promise<IpcResponse<AudioSourceProbe>>;
   track?: Pick<Track, "artists" | "duration">;
   verifyArtist?: boolean;
@@ -72,7 +75,7 @@ export const matchesAudioSource = (
 };
 
 /**
- * 并发解析并探测本档全部插件，降级复用已达标结果，同质保留插件顺序
+ * 前台有限并发达标即用，后台等待全部候选择优，降级复用已探测结果
  * @param requested - 用户请求的音质
  * @param resolve - 按本轮重试状态解析下一个候选
  * @param host - 有序候选、平台探测和取消信号
@@ -87,6 +90,7 @@ export const selectAudioSource = async <T extends { url: string; pluginId?: stri
   type Candidate = { source: T; quality: AudioQuality; rank: number };
   const reusable = new Map<string | null, Candidate>();
   const probes = new Map<string, Promise<AudioSourceProbe | null>>();
+  let finished = false;
 
   /**
    * 解析一个指定来源，降级已达标时复用地址，同一 URL 共用探测请求
@@ -95,9 +99,11 @@ export const selectAudioSource = async <T extends { url: string; pluginId?: stri
    * @returns 本轮该来源已验证的最佳候选
    */
   const inspect = async (pluginId: string | null, rank: number): Promise<Candidate | null> => {
-    if (signal?.aborted) return null;
+    if (finished || signal?.aborted) return null;
     const cached = reusable.get(pluginId);
     if (cached && cached.rank >= rank) return cached;
+    const available = pluginId === null ? undefined : host.pluginQualities?.get(pluginId);
+    if (available && !available.includes(QUALITY_ORDER[rank])) return cached ?? null;
     try {
       const source = await resolve({
         quality: QUALITY_ORDER[rank],
@@ -105,7 +111,7 @@ export const selectAudioSource = async <T extends { url: string; pluginId?: stri
         skipOfficialOnline: pluginId !== null,
         signal,
       });
-      if (signal?.aborted) return null;
+      if (finished || signal?.aborted) return null;
       if (!source) return cached ?? null;
       const url = source.url;
       let pending = probes.get(url);
@@ -116,7 +122,7 @@ export const selectAudioSource = async <T extends { url: string; pluginId?: stri
         probes.set(url, pending);
       }
       const quality = await pending;
-      if (signal?.aborted) return null;
+      if (finished || signal?.aborted) return null;
       if (
         quality &&
         (!host.track ||
@@ -138,21 +144,66 @@ export const selectAudioSource = async <T extends { url: string; pluginId?: stri
     return cached ?? null;
   };
 
-  for (let rank = QUALITY_ORDER.indexOf(requested); rank >= 0; rank--) {
-    const candidates = await Promise.all(pluginIds.map((id) => inspect(id, rank)));
-    if (signal?.aborted) return null;
-    let best: Candidate | null = null;
-    for (const candidate of candidates) {
-      if (candidate && (!best || compareAudioQuality(candidate.quality, best.quality) > 0)) {
-        best = candidate;
-      }
+  /**
+   * 收集本档插件结果，前台只保留两个在途候选并在实际音质达标时停止
+   * @param rank - 当前请求档位
+   * @returns 本轮已完成候选中的最佳结果
+   */
+  const inspectPlugins = (rank: number): Promise<Candidate | null> =>
+    new Promise((resolveRound) => {
+      let next = 0;
+      let pending = 0;
+      let settled = false;
+      let best: Candidate | null = null;
+      let bestIndex = Number.POSITIVE_INFINITY;
+      const concurrency = host.waitForAll ? pluginIds.length : 2;
+      /** 收尾本档比较并清理外部取消监听 */
+      const complete = (): void => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", complete);
+        resolveRound(signal?.aborted ? null : best);
+      };
+      /** 按顺序填充空闲请求位，完成后比较真实音质并决定是否继续 */
+      const launch = (): void => {
+        while (!settled && next < pluginIds.length && pending < concurrency) {
+          const index = next++;
+          const id = pluginIds[index];
+          pending++;
+          void inspect(id, rank).then((candidate) => {
+            pending--;
+            if (settled) return;
+            const comparison =
+              candidate && best ? compareAudioQuality(candidate.quality, best.quality) : 0;
+            if (candidate && (!best || comparison > 0 || (comparison === 0 && index < bestIndex))) {
+              best = candidate;
+              bestIndex = index;
+            }
+            if (!host.waitForAll && best && best.rank >= rank) complete();
+            else if (next === pluginIds.length && pending === 0) complete();
+            else launch();
+          });
+        }
+        if (pending === 0) complete();
+      };
+      signal?.addEventListener("abort", complete, { once: true });
+      if (signal?.aborted) complete();
+      else launch();
+    });
+
+  try {
+    for (let rank = QUALITY_ORDER.indexOf(requested); rank >= 0; rank--) {
+      let best = await inspectPlugins(rank);
+      if (signal?.aborted) return null;
+      if (best && best.rank >= rank) return { source: best.source, quality: best.quality };
+      const official = await inspect(null, rank);
+      if (signal?.aborted) return null;
+      if (official && (!best || compareAudioQuality(official.quality, best.quality) > 0))
+        best = official;
+      if (best && best.rank >= rank) return { source: best.source, quality: best.quality };
     }
-    if (best && best.rank >= rank) return { source: best.source, quality: best.quality };
-    const official = await inspect(null, rank);
-    if (signal?.aborted) return null;
-    if (official && (!best || compareAudioQuality(official.quality, best.quality) > 0))
-      best = official;
-    if (best && best.rank >= rank) return { source: best.source, quality: best.quality };
+    return null;
+  } finally {
+    finished = true;
   }
-  return null;
 };

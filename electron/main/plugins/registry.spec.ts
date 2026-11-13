@@ -119,6 +119,26 @@ afterEach(async () => {
 });
 
 describe("内置插件安装", () => {
+  it("注册消息只更新能力，必须收到真正的 ready 才结束初始化", () => {
+    registry.init();
+    const [spec, callbacks] = mocks.loadPlugin.mock.calls[0];
+    const sources = { tx: { name: "QQ", actions: ["musicUrl"], qualities: ["hi-res"] } };
+    callbacks.onSourcesUpdate(sources);
+    callbacks.onRegistered({ events: ["trackChanged"], controls: true, settings: [], menus: [] });
+    expect(
+      registry.listInfo().find((plugin) => plugin.manifest.id === spec.pluginId)?.status.state,
+    ).toBe("loading");
+    callbacks.onReady(sources);
+    expect(
+      registry.listInfo().find((plugin) => plugin.manifest.id === spec.pluginId)?.status,
+    ).toMatchObject({
+      state: "ready",
+      sources,
+      events: ["trackChanged"],
+      controls: true,
+    });
+  });
+
   it("首次启动按默认顺序安装七个真实脚本，成功次数为空且保留自动排序", () => {
     registry.init();
     const plugins = registry.listInfo();

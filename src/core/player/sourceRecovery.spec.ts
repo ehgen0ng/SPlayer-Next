@@ -205,19 +205,16 @@ describe("插件优先按实际解码音质换源", () => {
   });
 
   it.each(["netease", "qqmusic", "kugou"] as const)(
-    "%s 返回伪装成 FLAC 的 MP3 时继续换插件，比较达标候选后才播放",
+    "%s 跳过伪装成 FLAC 的 MP3，实际无损达标后直接起播",
     async (source) => {
       const queue = await import("@/stores/queue");
       queue.setQueue([tracks[0]!, { ...tracks[1]!, source }]);
       await player.playAtIndex(1);
-      expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual([
-        "a",
-        "b",
-        "c",
-      ]);
-      expect(mocks.probe).toHaveBeenCalledTimes(3);
+      expect(mocks.pluginResolve).toHaveBeenCalledWith(expect.objectContaining({ pluginId: "a" }));
+      expect(mocks.pluginResolve).toHaveBeenCalledWith(expect.objectContaining({ pluginId: "b" }));
+      expect(mocks.probe).toHaveBeenCalledWith("https://plugin/b.flac");
       expect(mocks.load).toHaveBeenCalledExactlyOnceWith(
-        "https://plugin/c.flac",
+        "https://plugin/b.flac",
         expect.objectContaining({ autoPlay: false }),
       );
       expect(mocks.load.mock.calls.every(([, options]) => options.autoPlay === false)).toBe(true);
@@ -227,7 +224,7 @@ describe("插件优先按实际解码音质换源", () => {
       );
       expect(media.detail?.quality.codec).toBe("flac");
       expect(mocks.warning).not.toHaveBeenCalled();
-      expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("c");
+      expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("b");
     },
   );
 
@@ -269,7 +266,7 @@ describe("插件优先按实际解码音质换源", () => {
     expect(status.trackLoading).toBe(false);
   });
 
-  it("Hi-Res 请求按真实档位过滤，所有候选比较完成后才播放", async () => {
+  it("Hi-Res 请求按真实档位过滤，取得达标候选后才播放", async () => {
     mocks.playerSettings.songLevel = "hi-res";
     await player.playAtIndex(1);
     expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual(["a", "b", "c"]);
@@ -281,15 +278,14 @@ describe("插件优先按实际解码音质换源", () => {
     expect(lyrics.loadForTrack).toHaveBeenCalledExactlyOnceWith(null);
   });
 
-  it("同档无损按码率择优，六声道更大仍标为普通无损", async () => {
-    qualities.a = { ...lossless, bitRate: 1033000 };
-    qualities.b = { ...lossless, bitRate: 2595000, channels: 6 };
+  it("前台实际无损达标即播，六声道高码率仍保留真实 16 bit", async () => {
+    qualities.a = { ...lossless, bitRate: 2595000, channels: 6 };
+    qualities.b = { ...lossless, bitRate: 1033000 };
     qualities.c = { ...lossless, bitRate: 1500000 };
     await player.playAtIndex(1);
-    expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual(["a", "b", "c"]);
-    expect(status.currentSource).toBe("https://plugin/b.flac");
-    expect(media.detail?.quality).toEqual(qualities.b);
-    expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("b");
+    expect(status.currentSource).toBe("https://plugin/a.flac");
+    expect(media.detail?.quality).toEqual(qualities.a);
+    expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("a");
     expect(mocks.play).toHaveBeenCalledOnce();
   });
 
@@ -364,18 +360,18 @@ describe("插件优先按实际解码音质换源", () => {
     mocks.load.mockResolvedValueOnce({ success: false, error: "FILE_DECODE_ERROR" });
     await player.playAtIndex(1);
     expect(mocks.pluginResolve).toHaveBeenCalled();
-    expect(status.currentSource).toBe("https://plugin/c.flac");
+    expect(status.currentSource).toBe("https://plugin/b.flac");
     expect(mocks.play).toHaveBeenCalledOnce();
   });
 
   it("冷启动恢复同样筛选音质，校验完成后恢复自动播放和记忆进度", async () => {
     mocks.systemPlayer.autoPlay = true;
     await player.restoreLastTrack();
-    expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual(["a", "b", "c"]);
+    expect(mocks.pluginResolve).toHaveBeenCalledWith(expect.objectContaining({ pluginId: "b" }));
     expect(mocks.play).toHaveBeenCalledOnce();
     expect(mocks.seek).toHaveBeenCalledWith(resumePosition);
     expect(status.state).toBe("playing");
-    expect(status.currentSource).toBe("https://plugin/c.flac");
+    expect(status.currentSource).toBe("https://plugin/b.flac");
   });
 
   it("同档换源不会重复调用前面已经报错的插件", async () => {
@@ -401,7 +397,6 @@ describe("插件优先按实际解码音质换源", () => {
       ["b", "hi-res"],
       ["c", "hi-res"],
       ["a", "lossless"],
-      ["c", "lossless"],
     ]);
     expect(mocks.play).toHaveBeenCalledOnce();
     expect(mocks.warning).toHaveBeenCalledExactlyOnceWith("player.qualityFallback");
@@ -436,7 +431,7 @@ describe("插件优先按实际解码音质换源", () => {
       ["b", "lossless"],
       ["c", "lossless"],
     ]);
-    expect(status.currentSource).toBe("https://plugin/c.flac");
+    expect(status.currentSource).toBe("https://plugin/b.flac");
     expect(mocks.playerSettings.songLevel).toBe("hi-res");
     expect(mocks.warning).toHaveBeenCalledOnce();
   });
@@ -461,7 +456,6 @@ describe("插件优先按实际解码音质换源", () => {
       ["c", "lossless"],
       ["a", "hq"],
       ["b", "hq"],
-      ["c", "hq"],
     ]);
     expect(status.currentSource).toBe("https://plugin/a.flac");
     expect(mocks.play).toHaveBeenCalledOnce();
@@ -483,6 +477,7 @@ describe("插件优先按实际解码音质换源", () => {
   });
 
   it.each(["暂停", "停止"])("换源期间手动%s不被迟到结果恢复播放", async (action) => {
+    qualities.c = mp3;
     let finish!: (result: unknown) => void;
     mocks.pluginResolve.mockImplementation(({ pluginId }) =>
       pluginId === "b"

@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { normalizeLxMusicInfo } from "./lx-shim";
+import { installLxShim, normalizeLxMusicInfo } from "./lx-shim";
+import type { HostApi, PluginAction, SourceCapability } from "../../../shared/types/plugin";
 
 describe("normalizeLxMusicInfo", () => {
   it("处理NCM等无 hash 歌曲时，不应设置空串 hash，且 ?? 能正确兜底到 songmid", () => {
@@ -97,6 +98,51 @@ describe("normalizeLxMusicInfo", () => {
     assert.equal(info.copyrightId, undefined);
     assert.equal("copyrightId" in info, false);
   });
+});
+
+describe("LX 原始音质声明", () => {
+  for (const type of ["hires", "24bit", "flac24bit"]) {
+    it(`Hi-Res 请求保留 ${type} 原始参数，声明按平台隔离`, async () => {
+      const handlers = new Map<PluginAction, (request: unknown) => Promise<unknown>>();
+      const sandbox: Record<string, unknown> = {};
+      let sources: Record<string, SourceCapability> = {};
+      installLxShim(
+        sandbox,
+        {} as HostApi,
+        handlers,
+        (value) => {
+          sources = value;
+        },
+        () => {},
+      );
+      const lx = sandbox.lx as {
+        on: (
+          name: string,
+          callback: (payload: { info: { type: string } }) => string,
+        ) => Promise<void>;
+        send: (name: string, data: unknown) => Promise<void>;
+      };
+      let received = "";
+      await lx.on("request", (payload) => {
+        received = payload.info.type;
+        return "https://example.invalid/audio";
+      });
+      await lx.send("inited", {
+        sources: {
+          tx: { name: "QQ", actions: ["musicUrl"], qualitys: [type] },
+          wy: { name: "网易", actions: ["musicUrl"], qualitys: ["flac24bit"] },
+          kg: { name: "酷狗", actions: ["musicUrl"] },
+        },
+      });
+      assert.deepEqual(sources.tx.qualities, ["hi-res"]);
+      assert.equal(sources.kg.qualities, undefined);
+      const resolve = handlers.get("musicUrl")!;
+      await resolve({ source: "tx", quality: "hi-res", musicInfo: { songmid: "1" } });
+      assert.equal(received, type);
+      await resolve({ source: "wy", quality: "hi-res", musicInfo: { songmid: "1" } });
+      assert.equal(received, "flac24bit");
+    });
+  }
 });
 
 describe("sandbox console and window compatibility", () => {

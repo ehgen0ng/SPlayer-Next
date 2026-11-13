@@ -77,12 +77,13 @@ const start = async (): Promise<void> => {
     await invokeNative("cache:setLimit", store.get("cache.songCache.sizeLimitGb") * 1024 ** 3);
   });
   ipcMain.on("system:setLocale", (_event, locale) => setLocale(locale));
-  ipcMain.handle("android:resolve", (_event, track, quality, preferences, requestId) =>
+  ipcMain.handle("android:resolve", (_event, track, quality, preferences, requestId, waitForAll) =>
     resolvePlaybackSource(
       trackSchema.parse(track),
       z.enum(["lq", "sq", "hq", "lossless", "hi-res"]).parse(quality),
       audioSourcePreferencesSchema.parse(preferences),
       z.string().parse(requestId),
+      z.boolean().default(false).parse(waitForAll),
     ),
   );
   ipcMain.handle("android:initialize", async () => {

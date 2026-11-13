@@ -16,6 +16,8 @@ import { handleError } from "@/utils/errors";
 
 /** 解析选项 */
 export interface ResolveTrackSourceOptions {
+  /** 后台预缓存等待全部候选比较，前台默认取得达标结果后起播 */
+  waitForAll?: boolean;
   /** 本次换源尝试的音质，省略时使用播放设置 */
   quality?: QualityLevel;
   /** 已下载文件加载失败时跳过，继续解析缓存或在线音源 */

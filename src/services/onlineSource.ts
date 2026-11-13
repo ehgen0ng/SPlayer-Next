@@ -8,6 +8,7 @@ import { resolveQQMusicUrl } from "@/apis/song/qqmusic";
 import { resolveKugouUrl } from "@/apis/song/kugou";
 import { ErrorCode } from "@shared/types/errors";
 import { matchesAudioSource, selectAudioSource } from "./audioSourceSelection";
+import { pluginSourceHealth } from "./pluginSourceHealth";
 
 export interface OnlineSourceHost {
   getSettings: () => AudioSourcePreferences;
@@ -17,6 +18,8 @@ export interface OnlineSourceHost {
 }
 
 export interface OnlineSourceOptions {
+  /** 后台预缓存等待同档全部候选择优 */
+  waitForAll?: boolean;
   signal?: AbortSignal;
   skipPluginIds?: readonly string[];
   skipOfficialOnline?: boolean;
@@ -60,6 +63,7 @@ export const getSourcePlugins = (track: Track, plugins: readonly PluginInfo[]): 
       info.enabled &&
       info.status.state === "ready" &&
       info.status.sources[source!]?.actions.includes("musicUrl") &&
+      pluginSourceHealth.isAvailable(info.manifest.id, source!) &&
       (track.source !== "plugin" || info.manifest.id === track.plugin?.pluginId),
   );
 };
@@ -92,7 +96,8 @@ export const resolveByPlugin = async (
     if (
       !plugin?.enabled ||
       plugin.status.state !== "ready" ||
-      !plugin.status.sources[origin.source]?.actions.includes("musicUrl")
+      !plugin.status.sources[origin.source]?.actions.includes("musicUrl") ||
+      !pluginSourceHealth.isAvailable(origin.pluginId, origin.source)
     ) {
       return fail(ErrorCode.NO_PLUGIN_AVAILABLE);
     }
@@ -103,6 +108,7 @@ export const resolveByPlugin = async (
         quality,
         musicInfo: { ...origin.musicInfo, songmid: origin.musicInfo.id },
       });
+      if (res?.url) pluginSourceHealth.succeeded(origin.pluginId, origin.source);
       const current = plugins.list.find((info) => info.manifest.id === origin.pluginId);
       if (
         signal?.aborted ||
@@ -116,6 +122,7 @@ export const resolveByPlugin = async (
         ? { ok: true, url: res.url, isTrial: false, provider: "plugin", pluginId: origin.pluginId }
         : fail(ErrorCode.URL_RESOLVE_FAILED);
     } catch (err) {
+      if (!signal?.aborted) pluginSourceHealth.failed(origin.pluginId, origin.source, err);
       console.warn("[plugin] resolveUrl failed", origin.pluginId, err);
       return fail(ErrorCode.URL_RESOLVE_FAILED);
     }
@@ -174,6 +181,7 @@ export const resolveByPlugin = async (
         musicInfo,
       });
       if (res?.url && !signal?.aborted) {
+        pluginSourceHealth.succeeded(plugin.manifest.id, pluginSource);
         return {
           ok: true,
           url: res.url,
@@ -183,6 +191,7 @@ export const resolveByPlugin = async (
         };
       }
     } catch (err) {
+      if (!signal?.aborted) pluginSourceHealth.failed(plugin.manifest.id, pluginSource, err);
       console.warn("[plugin] resolveUrl failed", plugin.manifest.id, err);
     }
   }
@@ -276,12 +285,12 @@ export const resolveOnlineUrl = async (
 };
 
 /**
- * 插件优先时共用并发择优与降级复用，其余偏好保留原有解析顺序
+ * 插件优先时前台达标即用、后台比较全部候选，共用真实音质探测与降级复用
  * @param host - 账号、插件列表与设置
  * @param track - 待解析曲目
  * @param quality - 请求音质
  * @param probe - 平台提供的真实音质探测
- * @param options - 本轮跳过的失败来源及取消信号
+ * @param options - 前后台等待策略、跳过的失败来源及取消信号
  * @returns 选中的地址和已验证音质，或解析失败原因
  */
 export const resolvePlaybackOnline = async (
@@ -323,9 +332,21 @@ export const resolvePlaybackOnline = async (
     }
     return { ok: false, errorCode: ErrorCode.URL_RESOLVE_FAILED };
   }
-  const pluginIds = getSourcePlugins(track, host.getPlugins().orderedList)
-    .map((plugin) => plugin.manifest.id)
-    .filter((id) => !options.skipPluginIds?.includes(id));
+  const plugins = getSourcePlugins(track, host.getPlugins().orderedList).filter(
+    (plugin) => !options.skipPluginIds?.includes(plugin.manifest.id),
+  );
+  const pluginIds = plugins.map((plugin) => plugin.manifest.id);
+  const source = isOnlinePlatform(track.source)
+    ? PLATFORM_TO_PLUGIN_SOURCE[track.source]
+    : undefined;
+  const pluginQualities = new Map(
+    plugins.map((plugin) => [
+      plugin.manifest.id,
+      plugin.status.state === "ready" && source
+        ? plugin.status.sources[source]?.qualities
+        : undefined,
+    ]),
+  );
   let errorCode = ErrorCode.URL_RESOLVE_FAILED;
   let trial: OnlineResolveResult | undefined;
   const selected = await selectAudioSource(
@@ -346,6 +367,8 @@ export const resolvePlaybackOnline = async (
     },
     {
       pluginIds,
+      pluginQualities,
+      waitForAll: options.waitForAll,
       probe,
       track,
       signal: options.signal,

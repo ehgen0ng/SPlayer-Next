@@ -99,7 +99,7 @@ final class SourceResolver implements ResolvingDataSource.Resolver {
 
     /**
      * 解析缓存缺失片段所需的网络地址
-     * @param spec - 保留读取范围与稳定缓存键的请求
+     * @param spec - 保留读取范围、稳定缓存键和后台预载标记的请求
      * @return 带真实网络地址的请求
      */
     @Override public DataSpec resolveDataSpec(DataSpec spec) throws IOException {
@@ -120,7 +120,8 @@ final class SourceResolver implements ResolvingDataSource.Resolver {
         int version = preferencesVersion;
         try {
             Object response = NodeRuntime.invoke("android:resolve",
-                new JSONArray().put(track).put(quality).put(preferences).put(requestId)).get(60, TimeUnit.SECONDS);
+                new JSONArray().put(track).put(quality).put(preferences).put(requestId)
+                    .put(Boolean.TRUE.equals(spec.customData))).get(60, TimeUnit.SECONDS);
             JSONObject result = (JSONObject) response;
             // 试听使用独立缓存身份，每次播放仍先经过选源与试听权限检查
             String actualKey = cacheKey(track, result.getString("cacheQuality"))

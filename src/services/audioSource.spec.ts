@@ -201,6 +201,37 @@ describe("插件音源优先级", () => {
     );
   });
 
+  it("自动选源按声明跳过 Hi-Res 请求，flac 返回真实 24 bit 时仍可直接选中", async () => {
+    const plugin = mocks.plugins[0];
+    if (plugin.status.state !== "ready") throw new Error("测试插件未就绪");
+    plugin.status.sources.tx.qualities = ["lossless"];
+    mocks.qqmusic.mockResolvedValue({ available: false, errorCode: ErrorCode.NETWORK_ERROR });
+    expect(await resolveTrackSource(track, { quality: "hi-res" })).toMatchObject({
+      provider: "plugin",
+      verifiedQuality: { codec: "flac", bitsPerSample: 24 },
+    });
+    expect(mocks.pluginResolve).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ quality: "lossless" }),
+    );
+  });
+
+  it("同平台连续超时暂停后续降档和下一首，另一平台仍可使用同一插件", async () => {
+    mocks.plugins[0].manifest.id = "cooldown-integration";
+    mocks.pluginResolve.mockRejectedValue(new Error("plugin request timeout"));
+    mocks.qqmusic.mockResolvedValue({ available: false, errorCode: ErrorCode.NETWORK_ERROR });
+    expect(await resolveTrackSource(track, { quality: "hi-res", silent: true })).toBeNull();
+    expect(mocks.pluginResolve).toHaveBeenCalledTimes(3);
+    expect(
+      await resolveTrackSource({ ...track, id: "next" }, { quality: "hi-res", silent: true }),
+    ).toBeNull();
+    expect(mocks.pluginResolve).toHaveBeenCalledTimes(3);
+    mocks.pluginResolve.mockResolvedValue({ url: "https://plugin/netease" });
+    expect(await resolveTrackSource({ ...track, source: "netease" })).toMatchObject({
+      provider: "plugin",
+      source: "https://plugin/netease",
+    });
+  });
+
   it("预载降级结果按实际音质写缓存，不污染 Hi-Res 缓存键", async () => {
     mocks.settings.system.cache.songCache.enabled = true;
     const resolved = await resolveTrackSource(track, { quality: "hi-res" });

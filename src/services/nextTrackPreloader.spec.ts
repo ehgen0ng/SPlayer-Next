@@ -129,6 +129,10 @@ describe("下一曲真实预载", () => {
       "lossless",
       true,
     );
+    expect(mocks.resolve).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ waitForAll: true }),
+    );
     expect(mocks.prepare).toHaveBeenCalledWith(
       expect.any(String),
       "C:/cache/lossless.bin",

@@ -122,6 +122,7 @@ interface PluginContextRecord {
   timers: Set<NodeJS.Timeout>;
   immediates: Set<NodeJS.Immediate>;
   disposed: boolean;
+  nativeRegistered: boolean;
 }
 
 const plugins = new Map<string, PluginContextRecord>();
@@ -204,9 +205,14 @@ type LoadSpec = Extract<SandboxIn, { kind: "loadPlugin" }>;
  * 构造注入插件沙箱的宿主 API
  * @param record - 插件上下文
  * @param spec - 沙箱初始化参数
+ * @param onRegistered - 原生插件注册后检查初始化是否完成
  * @returns 插件可调用的宿主对象
  */
-const buildSplayer = (record: PluginContextRecord, spec: LoadSpec): HostApi => ({
+const buildSplayer = (
+  record: PluginContextRecord,
+  spec: LoadSpec,
+  onRegistered: () => void,
+): HostApi => ({
   pluginId: spec.pluginId,
   apiLevel: spec.apiLevel,
   locale: spec.locale,
@@ -220,6 +226,8 @@ const buildSplayer = (record: PluginContextRecord, spec: LoadSpec): HostApi => (
    * @param args - 本次声明的音源、事件、设置与菜单
    */
   register: (args: RegisterArgs) => {
+    record.nativeRegistered = true;
+    queueMicrotask(onRegistered);
     if (args.sources) {
       record.registeredSources = { ...record.registeredSources, ...args.sources };
       send({ kind: "sourcesUpdate", pluginId: record.pluginId, sources: record.registeredSources });
@@ -247,6 +255,8 @@ const buildSplayer = (record: PluginContextRecord, spec: LoadSpec): HostApi => (
     action: A,
     handler: (req: ActionIO[A]["req"]) => Promise<ActionIO[A]["res"]>,
   ) => {
+    record.nativeRegistered = true;
+    queueMicrotask(onRegistered);
     record.handlers.set(action, handler as (req: unknown) => Promise<unknown>);
   },
 
@@ -519,10 +529,26 @@ const loadPluginIntoContext = (spec: LoadSpec): void => {
     timers: new Set(),
     immediates: new Set(),
     disposed: false,
+    nativeRegistered: false,
   };
   plugins.set(spec.pluginId, record);
 
-  const splayer = buildSplayer(record, spec);
+  let scriptExecuted = false;
+  let lxInitialized = false;
+  let readySent = false;
+  /** 仅在同步脚本执行结束且原生注册或 LX 初始化完成后报告就绪 */
+  const reportReady = (): void => {
+    if (
+      record.disposed ||
+      !scriptExecuted ||
+      readySent ||
+      (!record.nativeRegistered && !lxInitialized)
+    )
+      return;
+    readySent = true;
+    send({ kind: "ready", pluginId: spec.pluginId, sources: record.registeredSources });
+  };
+  const splayer = buildSplayer(record, spec, reportReady);
   (splayer as any).utils = buildUtils();
 
   const timerApi = makeTimers(record);
@@ -572,8 +598,10 @@ const loadPluginIntoContext = (spec: LoadSpec): void => {
     splayer,
     record.handlers,
     (sources) => {
+      lxInitialized = true;
       record.registeredSources = { ...record.registeredSources, ...sources };
       send({ kind: "sourcesUpdate", pluginId: record.pluginId, sources: record.registeredSources });
+      queueMicrotask(reportReady);
     },
     (info) => {
       send({ kind: "updateAvailable", pluginId: record.pluginId, info });
@@ -598,7 +626,7 @@ const loadPluginIntoContext = (spec: LoadSpec): void => {
     script.runInContext(context, { timeout: 10_000, breakOnSigint: false });
   } catch (err) {
     const hasSources = Object.keys(record.registeredSources).length > 0;
-    const hasHandlers = record.handlers.size > 0;
+    const hasHandlers = record.nativeRegistered;
     if (hasSources || hasHandlers) {
       send({
         kind: "log",
@@ -624,11 +652,8 @@ const loadPluginIntoContext = (spec: LoadSpec): void => {
     }
   }
 
-  // 脚本同步部分执行完，再 microtask 后上报 ready（兼容 lx 异步 inited）
-  queueMicrotask(() => {
-    if (record.disposed) return;
-    send({ kind: "ready", pluginId: spec.pluginId, sources: record.registeredSources });
-  });
+  scriptExecuted = true;
+  queueMicrotask(reportReady);
 };
 
 parentPort.on("message", async (event) => {

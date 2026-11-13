@@ -34,6 +34,7 @@ nativeEvents.on("android:serviceStopped", () => {
  * @param quality - 请求音质
  * @param preferences - 原生持久化的前台选源偏好
  * @param requestId - 原生加载请求标识，用于取消迟到结果
+ * @param waitForAll - 后台预缓存是否等待全部候选择优
  * @returns 可播放地址及实际提供方
  */
 export const resolvePlaybackSource = async (
@@ -41,6 +42,7 @@ export const resolvePlaybackSource = async (
   quality: QualityLevel,
   preferences: AudioSourcePreferences,
   requestId: string,
+  waitForAll = false,
 ) => {
   if (!["plugin", "netease", "qqmusic", "kugou"].includes(track.source)) {
     throw new Error("安卓车机只支持在线音源");
@@ -87,7 +89,7 @@ export const resolvePlaybackSource = async (
       track,
       quality,
       (url) => invokeNative<IpcResponse<AudioSourceProbe>>("player:probeSource", url),
-      { signal: abort.signal },
+      { signal: abort.signal, waitForAll },
     );
     if (abort.signal.aborted) throw new Error("音源解析已取消");
     if (!result.ok) throw new Error(result.errorCode);

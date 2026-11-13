@@ -301,6 +301,7 @@ export const scheduleNextTrackPreload = (): void => {
       }
       // 音源预拉取
       let source = await resolveTrackSource(candidateTrack, {
+        waitForAll: true,
         silent: true,
         signal: abort.signal,
       });

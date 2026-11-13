@@ -669,15 +669,6 @@ class PluginRegistry extends EventEmitter {
         if (rt.status.state === "ready") {
           const merged = { ...rt.status.sources, ...sources };
           this.setStatus(rt, { ...rt.status, sources: merged });
-        } else {
-          this.setStatus(rt, {
-            state: "ready",
-            sources,
-            events: rt.events,
-            controls: rt.controls,
-            settings: rt.settings,
-            menus: rt.menus,
-          });
         }
       },
       onRegistered: ({ events, controls, settings, menus }) => {
@@ -688,12 +679,6 @@ class PluginRegistry extends EventEmitter {
         rt.menus = menus;
         if (rt.status.state === "ready") {
           this.setStatus(rt, { ...rt.status, events, controls, settings, menus }, before);
-        } else {
-          this.setStatus(
-            rt,
-            { state: "ready", sources: {}, events, controls, settings, menus },
-            before,
-          );
         }
         this.primePlaybackSubscriber(rt);
       },
