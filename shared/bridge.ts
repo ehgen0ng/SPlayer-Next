@@ -29,7 +29,7 @@ import type { UpdateEvent } from "@shared/types/update";
 import type { CloudUploadProgress } from "@shared/types/cloudUpload";
 import type { MusicCommentQuery } from "@shared/types/comment";
 import type { AiModelSaveInput } from "@shared/types/ai";
-import type { DesktopLyricUnlockButtonBounds } from "@shared/types/window";
+import type { DesktopLyricUnlockButtonBounds, TaskbarLyricLayoutEvent } from "@shared/types/window";
 import type {
   LegacyPlaylistRecord,
   PlaylistCreateInput,
@@ -323,9 +323,15 @@ export const createAppApi = (
       listFonts: () => ipcRenderer.invoke("system:listFonts"),
       // 拉远端字节回渲染层
       fetchRemoteBytes: (url: string) => ipcRenderer.invoke("system:fetchRemoteBytes", url),
-      // 保存文件到下载目录
-      saveFile: (data: ArrayBuffer, defaultName: string) =>
-        ipcRenderer.invoke("system:saveFile", data, defaultName),
+      /**
+       * 通过保存对话框导出文件
+       * @param data - 文件内容
+       * @param defaultName - 默认文件名
+       * @param title - 对话框标题
+       * @returns 保存结果与用户取消状态
+       */
+      saveFile: (data: ArrayBuffer, defaultName: string, title: string) =>
+        ipcRenderer.invoke("system:saveFile", data, defaultName, title),
       // 重启应用
       relaunch: () => ipcRenderer.invoke("system:relaunch"),
       // 测试当前网络代理
@@ -366,6 +372,12 @@ export const createAppApi = (
       getTracksByIds: (ids: string[]) => ipcRenderer.invoke("library:getTracksByIds", ids),
       // 搜索曲目
       searchTracks: (query: string) => ipcRenderer.invoke("library:searchTracks", query),
+      /**
+       * 分组搜索本地歌曲、专辑和歌手
+       * @param keyword - 搜索关键词
+       * @returns 分组搜索结果
+       */
+      quickSearch: (keyword: string) => ipcRenderer.invoke("library:quickSearch", keyword),
       // 获取曲目总数
       getTrackCount: () => ipcRenderer.invoke("library:getTrackCount"),
       // 随机取一首曲目
@@ -498,23 +510,13 @@ export const createAppApi = (
     },
     taskbarLyric: {
       setContentWidth: (width: number) => ipcRenderer.send("taskbarLyric:setContentWidth", width),
-      // 订阅布局变化（锚定方向、是否居中、系统类型、任务栏主题）
-      onLayout: (
-        callback: (data: {
-          isCentered: boolean;
-          systemType: string;
-          isLight: boolean;
-          anchor: "left" | "right";
-          maxWidth: number;
-        }) => void,
-      ) =>
-        subscribe<{
-          isCentered: boolean;
-          systemType: string;
-          isLight: boolean;
-          anchor: "left" | "right";
-          maxWidth: number;
-        }>("taskbarLyric:layout", callback),
+      /**
+       * 订阅任务栏歌词布局变化
+       * @param callback - 布局事件处理器
+       * @returns 取消订阅函数
+       */
+      onLayout: (callback: (data: TaskbarLyricLayoutEvent) => void) =>
+        subscribe<TaskbarLyricLayoutEvent>("taskbarLyric:layout", callback),
       // 订阅任务栏歌词配置变化
       onConfigChange: (callback: (config: TaskbarLyricSettings) => void) =>
         subscribe<TaskbarLyricSettings>("taskbarLyric:configChange", callback),
@@ -605,6 +607,12 @@ export const createAppApi = (
       // 获取 AMLL TTML DB 的 TTML
       fetchTTMLOverlay: (track: unknown, platform: string) =>
         ipcRenderer.invoke("lyrics:fetchTTMLOverlay", track, platform),
+      /**
+       * 按歌曲元数据搜索在线 TTML
+       * @param track - 歌曲信息
+       * @returns TTML 查询结果
+       */
+      searchTTML: (track: unknown) => ipcRenderer.invoke("lyrics:searchTTML", track),
       // 在本地 TTML 歌词库目录中按元信息匹配
       matchLocalTTML: (track: unknown) => ipcRenderer.invoke("lyrics:matchLocalTTML", track),
       // 选择本地 TTML 歌词库目录
@@ -680,6 +688,16 @@ export const createAppApi = (
       // 订阅当前曲目歌词偏移变化
       onLyricOffsetChange: (callback: (data: unknown) => void) =>
         subscribe("nowPlaying:lyric-offset-change", callback),
+    },
+    motionCover: {
+      /**
+       * 解析歌曲的动态封面
+       * @param track - 歌曲信息
+       * @param source - 动态封面来源
+       * @returns 可播放地址，未匹配时为 null
+       */
+      resolve: (track: unknown, source: string): Promise<string | null> =>
+        ipcRenderer.invoke("motionCover:resolve", track, source),
     },
     theme: {
       // 弹出文件选择框
@@ -948,6 +966,12 @@ export const createAppApi = (
       getStatsSummary: () => ipcRenderer.invoke("stats:getStatsSummary"),
       // 取最常播放的曲目
       getTopTracks: (limit: number) => ipcRenderer.invoke("stats:getTopTracks", limit),
+      /**
+       * 获取最近播放的歌曲
+       * @param limit - 最多返回的歌曲数量
+       * @returns 最近播放的歌曲列表
+       */
+      getRecentTracks: (limit: number) => ipcRenderer.invoke("stats:getRecentTracks", limit),
       // 取音乐库统计概览
       getLibraryStats: () => ipcRenderer.invoke("stats:getLibraryStats"),
       // 取最近 N 天的每日播放统计

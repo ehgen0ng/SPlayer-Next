@@ -1,10 +1,10 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type -- Node.js 原生集成测试 */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
 const { randomUUID } = require("node:crypto");
+const http = require("node:http");
 const engine = require("../audio-engine.node");
 
 /**
@@ -113,4 +113,39 @@ test("重复预载与取消只保留当前解码资源", { timeout: 15000 }, asy
   t.diagnostic(
     `原生预载 RSS：预热后 ${(warmRss / 1048576).toFixed(1)} MiB，继续 20 轮后 ${(finalRss / 1048576).toFixed(1)} MiB`,
   );
+});
+
+test("跳转未缓存区间时沿用应用代理补读", { timeout: 10000 }, async (t) => {
+  const cached = growingWav(t);
+  const player = new engine.AudioPlayer();
+  let requested;
+  const received = new Promise((resolve) => (requested = resolve));
+  const server = http.createServer((request, response) => {
+    const range = /bytes=(\d+)-(\d*)/.exec(request.headers.range || "");
+    const start = range ? Number(range[1]) : 0;
+    const end = range?.[2]
+      ? Math.min(Number(range[2]), cached.data.length - 1)
+      : cached.data.length - 1;
+    response.writeHead(range ? 206 : 200, {
+      "Content-Type": "audio/wav",
+      "Accept-Ranges": "bytes",
+      "Content-Length": end - start + 1,
+      ...(range ? { "Content-Range": `bytes ${start}-${end}/${cached.data.length}` } : {}),
+    });
+    response.end(cached.data.subarray(start, end + 1));
+    requested(request.url);
+  });
+  t.after(async () => {
+    player.stop();
+    engine.setHttpProxy(null);
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  engine.setHttpProxy(`http://127.0.0.1:${server.address().port}`);
+  await player.load(cached.source, false);
+  await player.seek(8);
+  const timer = setTimeout(() => requested(null), 3000);
+  t.after(() => clearTimeout(timer));
+  assert.equal(await received, "http://127.0.0.1:1/unused");
 });

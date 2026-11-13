@@ -81,23 +81,21 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      # 校验标签、版本和更新通道
+      # 校验标签、版本和更新通道；Beta 由 beta.yml 自动打 tag，版本号以 tag 为准写入
       - name: Verify release metadata
         shell: bash
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          if [ "v$VERSION" != "$RELEASE_TAG" ]; then
-            echo "标签 $RELEASE_TAG 与 package.json 版本 v$VERSION 不一致"
-            exit 1
-          fi
+          VERSION="${RELEASE_TAG#v}"
           case "$VERSION" in
-            *-alpha|*-alpha.*)
-              echo "UPDATE_CHANNEL=alpha" >> "$GITHUB_ENV"
-              ;;
-            *-beta|*-beta.*)
+            *-beta.*)
+              npm pkg set version="$VERSION"
               echo "UPDATE_CHANNEL=beta" >> "$GITHUB_ENV"
               ;;
             *-fork|*-fork.*)
+              if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+                echo "标签 $RELEASE_TAG 与 package.json 版本不一致"
+                exit 1
+              fi
               echo "UPDATE_CHANNEL=latest" >> "$GITHUB_ENV"
               ;;
             *-*)
@@ -105,6 +103,10 @@ jobs:
               exit 1
               ;;
             *)
+              if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+                echo "标签 $RELEASE_TAG 与 package.json 版本不一致"
+                exit 1
+              fi
               echo "UPDATE_CHANNEL=latest" >> "$GITHUB_ENV"
               ;;
           esac
@@ -205,19 +207,16 @@ jobs:
       - name: Verify release metadata
         shell: bash
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          if [ "v$VERSION" != "$RELEASE_TAG" ]; then
-            echo "标签 $RELEASE_TAG 与 package.json 版本 v$VERSION 不一致"
-            exit 1
-          fi
+          VERSION="${RELEASE_TAG#v}"
           case "$VERSION" in
-            *-alpha|*-alpha.*)
-              echo "UPDATE_CHANNEL=alpha" >> "$GITHUB_ENV"
-              ;;
-            *-beta|*-beta.*)
+            *-beta.*)
               echo "UPDATE_CHANNEL=beta" >> "$GITHUB_ENV"
               ;;
             *-fork|*-fork.*)
+              if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+                echo "标签 $RELEASE_TAG 与 package.json 版本不一致"
+                exit 1
+              fi
               echo "UPDATE_CHANNEL=latest" >> "$GITHUB_ENV"
               ;;
             *-*)
@@ -225,6 +224,10 @@ jobs:
               exit 1
               ;;
             *)
+              if [ "$(node -p "require('./package.json').version")" != "$VERSION" ]; then
+                echo "标签 $RELEASE_TAG 与 package.json 版本不一致"
+                exit 1
+              fi
               echo "UPDATE_CHANNEL=latest" >> "$GITHUB_ENV"
               ;;
           esac

@@ -1,9 +1,10 @@
-pub(crate) mod input;
 pub(crate) mod cache_stream;
+pub(crate) mod input;
 mod processing;
 mod reader;
 mod stem_processing;
 use processing::run_dsp_safely;
+pub(crate) use reader::HTTP_PROXY;
 use reader::{build_resamplers, open_source, run_decoding_loop};
 
 pub(crate) mod buffer;
@@ -17,12 +18,12 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use ffmpeg_audio::{
-    sys, AudioError, AudioReader, HttpAudioSource, HttpCancelHandle, ResampleOptions, Resampler,
-    SeekMode,
+    AudioError, AudioReader, HttpAudioSource, HttpCancelHandle, HttpProxy, ResampleOptions,
+    Resampler, SeekMode, sys,
 };
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use tracing::debug;
 
 use crate::decoder::buffer::{AudioChunk, Shared};

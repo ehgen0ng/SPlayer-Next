@@ -37,7 +37,14 @@ const categories: SettingCategory[] = [
 
 const androidSections: Record<string, readonly string[]> = {
   general: ["language", "debug"],
-  appearance: ["theme", "layout", "softwareAnimations", "playerBar", "nowPlaying"],
+  appearance: [
+    "theme",
+    "layout",
+    "softwareAnimations",
+    "playerBar",
+    "fullPlayer",
+    "playerBackground",
+  ],
   player: ["playBehavior", "audioSource", "musicSpectrum"],
   lyric: [
     "lyricContent",
@@ -59,6 +66,7 @@ const desktopItems = new Set([
   "enableLocalTTMLOverride",
   "skipKeywordsSongs",
   "keepScreenAwake",
+  "motionCover",
 ]);
 
 export const settingsSchema: SettingCategory[] = isAndroid

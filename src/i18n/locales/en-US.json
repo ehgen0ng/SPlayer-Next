@@ -208,12 +208,20 @@
     "devtools": "Developer Tools",
     "globalSettings": "Global Settings",
     "searchPlaceholder": "Search songs, artists or albums",
-    "searchEmpty": "Start typing to search",
     "searchGoto": "Search for \"{keyword}\"",
+    "searchCommandHint": "Search songs, or type / for commands",
+    "searchCommandTip": "Type to jump to a setting or page, or run a common action",
     "searchSection": {
       "quick": "Quick",
       "history": "Recent searches",
-      "hot": "Trending"
+      "pages": "Pages",
+      "actions": "Actions"
+    },
+    "searchHistoryClearConfirm": "Clear all search history?",
+    "searchFooter": {
+      "select": "Select",
+      "run": "Run",
+      "command": "Commands"
     },
     "searchMenu": {
       "copy": "Copy",
@@ -495,6 +503,7 @@
       "hint": "Positive values advance lyrics, in milliseconds"
     },
     "lyricCredit": "Lyrics by",
+    "collapse": "Collapse Player",
     "copyLyric": {
       "title": "Copy Lyrics",
       "contentLabel": "Content to copy",
@@ -510,7 +519,8 @@
       "copy": "Copy",
       "copyRaw": "Copy original",
       "exportImage": "Export image",
-      "saved": "Saved to Downloads",
+      "saveDialogTitle": "Save lyrics image",
+      "saved": "Saved to the selected location",
       "fileSuffix": "Lyrics",
       "exportFailed": "Failed to export image",
       "empty": "Nothing to copy"
@@ -788,7 +798,8 @@
       "softwareAnimations": "Transitions & Animations",
       "font": "Fonts",
       "playerBar": "Player Bar",
-      "nowPlaying": "Now Playing",
+      "fullPlayer": "Player",
+      "playerBackground": "Player Background",
       "media": "Media Controls",
       "device": "Output Device",
       "hotkeys": "Hotkeys",
@@ -883,6 +894,13 @@
       "description": "Configure the play button at the start of each song row",
       "current": "Play Current Track Only",
       "all": "Play Whole List"
+    },
+    "barLyricMode": {
+      "label": "Player Bar Lyric Mode",
+      "description": "Choose lyric content and highlighting; long lines scroll with playback progress",
+      "lyric": "Lyrics",
+      "translation": "Lyrics + Translation",
+      "word": "Word by Word"
     },
     "showLyricInBar": {
       "label": "Show Lyric While Playing",
@@ -1076,12 +1094,12 @@
     "amllDbServer": {
       "label": "AMLL TTML DB Server",
       "description": "Make sure the URL is correct, otherwise lyric fetch will fail",
-      "placeholder": "Enter AMLL TTML DB URL",
+      "placeholder": "Leave empty to use the official API",
       "warning": "If you do not know what this does, please leave it as default",
-      "hint": "URL must be valid and contain the required placeholders",
-      "placeholders": "%p is the platform path, %s is the song ID",
+      "hint": "Leave empty to use the official AMLL API; a mirror URL must contain %s",
+      "placeholders": "%s is the song ID (required), %p is the platform path (optional)",
       "docsHint": "More info at",
-      "invalid": "Invalid URL — required placeholders missing"
+      "invalid": "Invalid URL — %s placeholder missing"
     },
     "enableExcludeLyrics": {
       "label": "Enable Lyric Exclusion",
@@ -1168,7 +1186,7 @@
       "restartRequiredTitle": "Restart Required",
       "restartRequiredContent": "This setting requires an app restart. Save and relaunch now?",
       "testChannelTitle": "Switch to a Test Channel",
-      "testChannelContent": "Beta and Alpha channels receive test releases early. Alpha releases may be highly unstable. Switch anyway?",
+      "testChannelContent": "Beta and Nightly channels receive test releases early. Nightly releases may be highly unstable. Switch anyway?",
       "kugouLoginVersionTitle": "Switch KG Login Version",
       "kugouLoginVersionContent": "After switching, the current credentials will not match the new version. You must log out and scan the QR code again, or VIP privileges and high-quality playback will stop working. Switch anyway?",
       "exclusiveModeTitle": "Switch to Exclusive Mode",
@@ -1269,6 +1287,14 @@
       "label": "Follow Cover Color",
       "description": "Lyric color follows the current cover art"
     },
+    "motionCover": {
+      "label": "Animated Cover",
+      "description": "Play the album's animated cover in the full player",
+      "off": "Off",
+      "ncm": "NCM Only",
+      "am": "AM Only",
+      "amFirst": "Prefer AM"
+    },
     "autoImmersive": {
       "label": "Auto Immersive Mode",
       "description": "Hide top/bottom bars and the cursor when the mouse is idle or leaves the window"
@@ -1297,6 +1323,10 @@
       "label": "Lyric Scale",
       "description": "Scale down inactive lines slightly to highlight current line"
     },
+    "enableBalancedWrap": {
+      "label": "Balanced Line Wrap",
+      "description": "Wrap long lines into lines of similar length, breaking at punctuation and spaces first"
+    },
     "lyricAlignment": {
       "label": "Lyric Alignment",
       "description": "Automatically place singers on opposite sides, or align all lines left, center, or right",
@@ -1308,6 +1338,10 @@
     "bgAlwaysBelow": {
       "label": "Background Lyrics Always Below",
       "description": "Always place background vocal lines below the main lyric line"
+    },
+    "autoGenerateWordByWord": {
+      "label": "Auto-generate Word Effect",
+      "description": "Generate word-by-word effects for line-timed lyrics"
     },
     "enableWordHighlight": {
       "label": "Word Highlight",
@@ -1395,10 +1429,6 @@
     "desktopLyricWordByWord": {
       "label": "Word by Word",
       "description": "Render highlight progress per word"
-    },
-    "desktopLyricAutoGenerateWordByWord": {
-      "label": "Auto-generate Word Effect",
-      "description": "When off, only real per-word lyrics apply"
     },
     "desktopLyricPlayedColor": {
       "label": "Played Color",
@@ -1574,7 +1604,7 @@
       "description": "Render highlight progress per word"
     },
     "playerBgType": {
-      "label": "Player Background",
+      "label": "Background Style",
       "description": "Background type of the full-screen player",
       "blur": "Blur",
       "solid": "Solid",
@@ -1607,15 +1637,17 @@
       "label": "Beat Pulse",
       "description": "Make the fluid background pulse with the low-frequency beat of the music"
     },
-    "coverLayout": {
-      "label": "Cover Layout",
-      "description": "Cover presentation in the full-screen player",
-      "default": "Default",
-      "fullscreen": "Fullscreen"
+    "playerLayout": {
+      "label": "Player Layout",
+      "description": "Overall layout of the full-screen player",
+      "classic": "Classic",
+      "fullCover": "Fullscreen Cover",
+      "fullLyric": "Fullscreen Lyrics",
+      "apple": "AM Style"
     },
     "coverLyricRatio": {
       "label": "Cover/Lyrics Ratio",
-      "description": "Width ratio between cover and lyric areas in Now Playing"
+      "description": "Width ratio between cover and lyric areas in the classic layout"
     },
     "themeMode": {
       "label": "Theme Mode",
@@ -1854,7 +1886,6 @@
       "description": "Choose which releases to receive. Switching channels never automatically downgrades the app.",
       "stable": "Stable",
       "beta": "Beta Preview",
-      "alpha": "Alpha Experimental",
       "nightly": "Nightly Build"
     },
     "showPerformanceMonitor": {
@@ -2208,6 +2239,7 @@
       "artists": "Artist Avatars",
       "backgrounds": "Backgrounds",
       "songs": "Song Files",
+      "motionCovers": "Animated Covers",
       "lyric": "Lyric Content Cache",
       "lyricTTML": "TTML Lyric Cache",
       "lyricMatch": "Lyric Match Cache"
@@ -2219,6 +2251,10 @@
     "cacheStreaming": {
       "label": "Cache Streaming Tracks",
       "description": "Cache tracks from personal media servers locally during playback"
+    },
+    "motionCoverSizeLimit": {
+      "label": "Animated Cover Cache Limit",
+      "description": "Least recently played covers are removed when the limit is exceeded"
     },
     "songCacheSizeLimit": {
       "label": "Size Limit",

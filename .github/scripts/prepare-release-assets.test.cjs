@@ -75,21 +75,6 @@ test("Beta 版生成 beta 和 alpha 清单", () => {
   }
 });
 
-test("Alpha 版只发布 alpha 清单", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "splayer-release-alpha-"));
-  try {
-    const src = path.join(root, "artifacts");
-    const out = path.join(root, "out");
-    createFixture(src, "1.4.0-alpha.1", "alpha");
-    prepareReleaseAssets(src, out, "1.4.0-alpha.1");
-    assert.equal(fs.existsSync(path.join(out, "alpha.yml")), true);
-    assert.equal(fs.existsSync(path.join(out, "beta.yml")), false);
-    assert.equal(fs.existsSync(path.join(out, "latest.yml")), false);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("Nightly 版只发布 nightly 清单", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "splayer-release-nightly-"));
   try {
@@ -133,7 +118,7 @@ test("Fork 正式版保留版本号并生成 latest、beta 和 alpha 清单", ()
   }
 });
 
-test("发布工作流将 Fork 和无后缀正式版创建为草稿，Alpha 和 Beta 保持预发布", () => {
+test("发布工作流将 Fork 和无后缀正式版创建为草稿，Beta 保持预发布", () => {
   const workflow = yaml.load(
     fs.readFileSync(path.join(__dirname, "../workflows/release.yml"), "utf8"),
   );
@@ -145,7 +130,6 @@ test("发布工作流将 Fork 和无后缀正式版创建为草稿，Alpha 和 B
       ["1.2.1-fork.1", "latest", "--draft"],
       ["1.2.1-fork.2", "latest", "--draft"],
       ["1.2.1", "latest", "--draft"],
-      ["1.3.0-alpha.1", "alpha", "--prerelease"],
       ["1.3.0-beta.1", "beta", "--prerelease"],
     ]) {
       fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ version }));
@@ -199,6 +183,7 @@ test("发布工作流将 Fork 和无后缀正式版创建为草稿，Alpha 和 B
 
 test("拒绝未支持的预发布通道", () => {
   assert.throws(() => resolveChannel("1.3.0-rc.1"), /不支持的预发布版本格式/);
+  assert.throws(() => resolveChannel("1.4.0-alpha.1"), /不支持的预发布版本格式/);
 });
 
 test("安卓 APK 随桌面资源归集且不进入桌面自动更新清单", () => {

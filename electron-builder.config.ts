@@ -13,17 +13,17 @@ const fileAssociations = [...SUPPORTED_AUDIO_EXTENSIONS].map((extension) => {
 });
 
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version as string;
-const versionChannel = /-(alpha|beta|nightly|fork)(?:\.|$)/.exec(packageVersion)?.[1];
-// fork 后缀标识本分支的正式版本，更新仍使用稳定通道
-const inferredUpdateChannel = versionChannel === "fork" ? "latest" : (versionChannel ?? "latest");
+const versionChannel = /-(beta|nightly|dev|fork)(?:\.|$)/.exec(packageVersion)?.[1];
+// fork 使用稳定通道，dev 构建沿用上游的 Nightly 通道
+const inferredUpdateChannel =
+  versionChannel === "fork"
+    ? "latest"
+    : versionChannel === "dev"
+      ? "nightly"
+      : (versionChannel ?? "latest");
 const updateChannel = process.env.UPDATE_CHANNEL ?? inferredUpdateChannel;
 
-if (
-  updateChannel !== "latest" &&
-  updateChannel !== "beta" &&
-  updateChannel !== "alpha" &&
-  updateChannel !== "nightly"
-) {
+if (updateChannel !== "latest" && updateChannel !== "beta" && updateChannel !== "nightly") {
   throw new Error(`不支持的更新通道: ${updateChannel}`);
 }
 if (packageVersion.includes("-") && !versionChannel) {

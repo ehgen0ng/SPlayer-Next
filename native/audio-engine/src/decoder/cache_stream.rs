@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use ffmpeg_audio::{HttpAudioSource, HttpCancelHandle};
 use parking_lot::{Condvar, Mutex};
 
@@ -108,6 +108,8 @@ impl CacheStream {
 
 impl Read for CacheStream {
     /// 优先读已落盘区间，追上下载进度时等待，不把暂时的文件末尾当作 EOF
+    /// @param buf - 接收音频字节的缓冲区
+    /// @returns 实际读取的字节数
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.is_empty() || self.position >= self.shared.total {
             return Ok(0);
@@ -144,9 +146,11 @@ impl Read for CacheStream {
                 drop(progress);
                 // 容器探测或用户跳转可能先读文件尾，只为缺失区间请求 Range
                 if self.remote.is_none() {
-                    let mut remote = HttpAudioSource::new_with_cancel_handle(
+                    let proxy = super::reader::HTTP_PROXY.read().clone();
+                    let mut remote = HttpAudioSource::new_with_proxy(
                         &self.shared.upstream,
-                        self.cancel.clone(),
+                        &self.cancel,
+                        &proxy,
                     )
                     .map_err(|error| io::Error::other(error.to_string()))?;
                     remote.seek(SeekFrom::Start(self.position))?;

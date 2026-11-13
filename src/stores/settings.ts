@@ -142,11 +142,12 @@ export const useSettingsStore = defineStore(
       playerBgRenderScale: 0.5,
       playerBgFreezeOnPause: false,
       playerBgBeat: false,
-      coverLayout: "default",
+      layout: "classic",
       coverLyricRatio: 0.45,
       autoCenterCover: true,
       showPlaybackSource: false,
       followCoverColor: true,
+      motionCoverSource: "off",
       autoImmersive: true,
       outputDevice: null,
       pauseOnDeviceSwitch: false,
@@ -164,6 +165,7 @@ export const useSettingsStore = defineStore(
       showProgressLyric: false,
       snapToLyric: false,
       showLyricInBar: true,
+      barLyricMode: "translation",
       preloadNextTrack: true,
       transitionMode: "none",
       transitionPreference: "standard",
@@ -189,6 +191,7 @@ export const useSettingsStore = defineStore(
       smartPreferOnline: true,
       preferPluginLyric: false,
       detectBackgroundLyrics: true,
+      autoGenerateWordByWord: false,
       cjkTransform: "none",
       adaptiveFontSize: true,
       fontSize: 48,
@@ -207,6 +210,7 @@ export const useSettingsStore = defineStore(
       showWordRomanization: true,
       enableScale: true,
       bgAlwaysBelow: false,
+      enableBalancedWrap: true,
       enableWordHighlight: true,
       enableFloatAnimation: false,
       enableEmphasizeEffect: false,
@@ -387,30 +391,13 @@ export const useSettingsStore = defineStore(
       storage: localStorage,
       omit: ["system"],
       afterHydrate: ({ store }) => {
-        const { lyric, appearance, preset, player } = store as unknown as {
+        const { lyric, appearance, player } = store as unknown as {
+          player: PlayerSettings;
           lyric: LyricSettings;
           appearance: AppearanceSettings;
-          preset: PresetSettings;
-          player: PlayerSettings;
         };
-        if (player.transitionMode !== "crossfade" && player.transitionMode !== "automix")
-          player.transitionMode = "none";
-        if (
-          player.transitionPreference !== "conservative" &&
-          player.transitionPreference !== "eager"
-        ) {
-          player.transitionPreference = "standard";
-        }
-        if (typeof player.automixCrossfadeFallback !== "boolean")
-          player.automixCrossfadeFallback = true;
         if (typeof player.verifySourceArtist !== "boolean") player.verifySourceArtist = false;
         if (typeof player.verifySourceDuration !== "boolean") player.verifySourceDuration = true;
-        if (typeof lyric.detectBackgroundLyrics !== "boolean") {
-          lyric.detectBackgroundLyrics = true;
-        }
-        if (!Array.isArray(preset.skipTrackKeywords)) {
-          preset.skipTrackKeywords = [...DEFAULT_SKIP_TRACK_KEYWORDS];
-        }
         lyric.lyricSourceOrder = reconcileOrder(lyric.lyricSourceOrder, ALL_PLATFORMS);
         lyric.lyricFormatOrder = reconcileOrder(lyric.lyricFormatOrder, DEFAULT_LYRIC_FORMAT_ORDER);
         appearance.sidebarNavGroups = reconcileNavGroups(appearance.sidebarNavGroups ?? []);

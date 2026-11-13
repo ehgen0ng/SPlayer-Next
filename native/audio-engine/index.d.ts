@@ -488,6 +488,9 @@ export declare function releaseCacheStream(source: string): void
  */
 export declare function scanDirs(dirs: Array<string>, callback: (event: JsScanEvent) => void, coverCacheDir?: string | undefined | null, incrementalData?: Array<FileRecord> | undefined | null): void
 
+/** 设置网络音频代理（http/https/socks5），为空时直连；对之后打开的音频流生效 */
+export declare function setHttpProxy(proxyUrl?: string | undefined | null): void
+
 /**
  * 更新已经写入磁盘的缓存字节数并通知下载终态
  * @param source - 注册返回的音源标识
