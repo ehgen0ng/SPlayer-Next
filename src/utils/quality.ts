@@ -35,7 +35,7 @@ const QUALITY_FULL_LABELS: Record<QualityLevel, string> = {
 };
 
 /**
- * 判断音质等级；信息不全时回落到 LQ
+ * 判断音质等级，无损文件按原始位深区分 Hi-Res，不限制采样率
  * @param quality - AudioQuality；undefined / 无 codec 时按最低档处理
  * @returns 音质等级
  */
@@ -43,7 +43,7 @@ export const getQualityLevel = (quality: AudioQuality | undefined): QualityLevel
   if (!quality || !quality.codec || quality.codec === "unknown") return "lq";
   const isLossless = isLosslessCodec(quality.codec);
   if (isLossless) {
-    if (quality.sampleRate >= 96000 && quality.bitsPerSample >= 24) return "hi-res";
+    if (quality.bitsPerSample >= 24) return "hi-res";
     return "lossless";
   }
   const kbps = quality.bitRate / 1000;

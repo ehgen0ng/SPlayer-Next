@@ -89,6 +89,21 @@ describe("可选的音源身份校验", () => {
 });
 
 describe("公共并发选源", () => {
+  it("24-bit / 48 kHz 音源直接满足 Hi-Res，同一结果只取址和探测一次", async () => {
+    const quality = { ...lossless, sampleRate: 48000, bitsPerSample: 24, bitRate: 1546000 };
+    const resolve = vi.fn(async () => ({ pluginId: "a", url: "audio" }));
+    const probe = vi.fn(async () => ({ success: true, data: quality }));
+
+    expect(await selectAudioSource("hi-res", resolve, { pluginIds: ["a"], probe })).toEqual({
+      source: { pluginId: "a", url: "audio" },
+      quality,
+    });
+    expect(resolve).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ quality: "hi-res", skipOfficialOnline: true }),
+    );
+    expect(probe).toHaveBeenCalledExactlyOnceWith("audio");
+  });
+
   it("全部候选在任意结果返回前启动，同音质按排序而非完成顺序选择", async () => {
     const pluginIds = ["a", "b", "c", "d", "e"];
     const finish = new Map<string, (value: { pluginId: string; url: string }) => void>();
