@@ -6,7 +6,7 @@ import { initThumbar } from "@main/services/thumbar";
 import { enableTaskbarThumbnail } from "@main/services/thumbnail";
 import { initTray } from "@main/services/tray";
 import { store } from "@main/store";
-import { handleCacheProtocolOnPartition, MAIN_PARTITION } from "@main/utils/protocol";
+import { MAIN_PARTITION } from "@main/utils/protocol";
 import { isAppQuitting } from "@main/utils/lifecycle";
 import { broadcast } from "@main/utils/broadcast";
 import { CURRENT_AGREEMENT_VERSION } from "@shared/constants/agreement";
@@ -32,8 +32,6 @@ export const createMainWindow = (): BrowserWindow => {
   /** 旧版窗口状态 */
   const legacyState = remember ? store.get("windowStates.main") : undefined;
 
-  // 注册 cache:// 协议
-  handleCacheProtocolOnPartition(MAIN_PARTITION);
   const borderlessWindow = store.get("system.borderlessWindow") ?? true;
 
   mainWindow = createWindow({

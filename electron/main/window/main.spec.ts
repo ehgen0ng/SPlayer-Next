@@ -24,7 +24,6 @@ vi.mock("@main/store", () => ({
 }));
 vi.mock("@main/utils/protocol", () => ({
   MAIN_PARTITION: "persist:main",
-  handleCacheProtocolOnPartition: vi.fn(),
 }));
 vi.mock("@main/utils/lifecycle", () => ({ isAppQuitting: () => false }));
 vi.mock("@main/utils/broadcast", () => ({ broadcast: vi.fn() }));
