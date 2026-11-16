@@ -10,7 +10,7 @@
  */
 
 import { buildFingerprint } from "@main/database/lyricMatchCache";
-import { appVersion } from "@main/utils/config";
+import { getAppVersion } from "@main/runtime/application";
 import { coreLog } from "@main/utils/logger";
 import { store } from "@main/store";
 import {
@@ -28,7 +28,7 @@ const OFFICIAL_API = "https://api.amll.dev/v1/lyrics";
 
 const SEARCH_PAGE_SIZE = "50";
 
-const USER_AGENT = `SPlayer-Next/${appVersion} (https://github.com/SPlayer-Dev/SPlayer-Next)`;
+const USER_AGENT = `SPlayer-Next/${getAppVersion()} (https://github.com/SPlayer-Dev/SPlayer-Next)`;
 
 /** 搜索接口单条结果中用到的部分 */
 interface AmllSong {

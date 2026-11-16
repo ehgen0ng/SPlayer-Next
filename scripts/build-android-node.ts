@@ -28,6 +28,20 @@ await build({
   target: "node24.22",
   format: "cjs",
   logLevel: "info",
+  plugins: [
+    {
+      name: "android-no-electron",
+      /**
+       * 在构建时阻止桌面依赖进入安卓运行时
+       * @param bundler - 当前打包任务的插件接口
+       */
+      setup(bundler) {
+        bundler.onResolve({ filter: /^electron(?:\/|$)/ }, () => ({
+          errors: [{ text: "安卓业务模块不能依赖 Electron，请使用 @main/runtime 中的跨平台接口" }],
+        }));
+      },
+    },
+  ],
   alias: {
     "@main/runtime": path.join(root, "android/node/runtime"),
     "@main/utils/logger": path.join(root, "android/node/runtime/logger.ts"),
