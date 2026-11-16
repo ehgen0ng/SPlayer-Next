@@ -17,6 +17,19 @@ runs:
         distribution: temurin
         java-version: 21
     - uses: gradle/actions/setup-gradle@v4
+    - name: Prepare Gradle distribution
+      shell: bash
+      run: |
+        # 预下载 Gradle，临时断线时重试，应用构建仍只执行一次
+        for attempt in 1 2 3; do
+          if ./android/gradlew --version --console=plain; then
+            exit 0
+          fi
+          if [ "$attempt" -lt 3 ]; then
+            sleep 5
+          fi
+        done
+        exit 1
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
       with:
