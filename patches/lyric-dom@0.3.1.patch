@@ -1,0 +1,24 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index a23b2b8fa651dfc27eeae3d88015680ef3e2fee8..3e72fd13b04cc63d34fe586051c9c80ed6abea36 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -1299,6 +1299,11 @@ const measureAndApplyWordMasks = (wordMeasurements, fadeRatio, lines) => {
+ 			if (measurement.maskKey === maskKey) continue;
+ 			measurement.maskKey = maskKey;
+ 			const style = measurement.element.style;
++			// 旧版安卓 WebView 仅识别带前缀的遮罩属性
++			style.setProperty("-webkit-mask-image", maskImage);
++			style.setProperty("-webkit-mask-size", maskSize);
++			style.setProperty("-webkit-mask-repeat", "no-repeat");
++			style.setProperty("-webkit-mask-position", maskPosition);
+ 			style.setProperty("mask-image", maskImage);
+ 			style.setProperty("mask-size", maskSize);
+ 			style.setProperty("mask-repeat", "no-repeat");
+@@ -1312,6 +1317,7 @@ const measureAndApplyWordMasks = (wordMeasurements, fadeRatio, lines) => {
+ const buildMainLayer = (line, mainDiv, options, isStatic, showWordRoman) => {
+ 	if (isStatic) {
+ 		mainDiv.appendChild(document.createTextNode(line.words.map((w) => w.word).join("")));
++		mainDiv.style.setProperty("-webkit-mask-image", "linear-gradient(rgba(0,0,0,var(--ba)),rgba(0,0,0,var(--ba)))");
+ 		mainDiv.style.setProperty("mask-image", "linear-gradient(rgba(0,0,0,var(--ba)),rgba(0,0,0,var(--ba)))");
+ 		return {
+ 			measurements: [],

@@ -16,6 +16,8 @@ export interface AndroidPlaybackSnapshot extends PlayerStatus {
   repeat: RepeatMode;
   shuffle: ShuffleMode;
   timestamp: number;
+  /** 本次原生事件包含跳转或循环等进度突变，需要立即校准歌词时钟 */
+  positionDiscontinuity?: boolean;
   mode: "queue" | "heart" | "fm";
   fmOptions: PersonalFmOptions;
   audioQuality?: AudioQuality;

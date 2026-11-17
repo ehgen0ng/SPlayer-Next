@@ -103,4 +103,55 @@ describe("默认歌词引擎配置同步", () => {
       wrapper.unmount();
     }
   });
+
+  it("逐字遮罩同时提供旧 WebView 的前缀属性，换词和配置更新后仍保留", async () => {
+    // happy-dom 不保留 WebKit 遮罩属性，检查引擎实际写入的声明
+    const setProperty = vi.spyOn(CSSStyleDeclaration.prototype, "setProperty");
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextId = 0;
+    vi.mocked(requestAnimationFrame).mockImplementation((callback) => {
+      frames.set(++nextId, callback);
+      return nextId;
+    });
+    vi.mocked(cancelAnimationFrame).mockImplementation((id) => frames.delete(id));
+    const line = makeLine("逐字");
+    line.words = [
+      { word: "逐", startTime: 1000, endTime: 1500 },
+      { word: "字", startTime: 1500, endTime: 2000 },
+    ];
+    const wrapper = mount(DefaultLyrics, {
+      props: { lyricLines: [line], enableBalancedWrap: false },
+      global: lyricGlobals,
+    });
+    try {
+      for (const wordFadeWidth of [0.5, 0.8]) {
+        await wrapper.setProps({ wordFadeWidth });
+        const callbacks = [...frames.values()];
+        frames.clear();
+        for (const callback of callbacks) callback(performance.now());
+        const words = wrapper.findAll(".lp-main > span");
+        expect(words).toHaveLength(2);
+        for (const word of words) {
+          const style = (word.element as HTMLElement).style;
+          for (const property of ["mask-image", "mask-size", "mask-repeat", "mask-position"]) {
+            expect(style.getPropertyValue(property)).not.toBe("");
+            expect(setProperty.mock.calls).toContainEqual([
+              `-webkit-${property}`,
+              style.getPropertyValue(property),
+            ]);
+          }
+        }
+        setProperty.mockClear();
+      }
+      await wrapper.setProps({ lyricLines: [makeLine("逐行歌词")] });
+      const mainStyle = (wrapper.get(".lp-main").element as HTMLElement).style;
+      expect(mainStyle.getPropertyValue("mask-image")).not.toBe("");
+      expect(setProperty.mock.calls).toContainEqual([
+        "-webkit-mask-image",
+        mainStyle.getPropertyValue("mask-image"),
+      ]);
+    } finally {
+      wrapper.unmount();
+    }
+  });
 });

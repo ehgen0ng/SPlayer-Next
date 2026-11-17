@@ -15,7 +15,7 @@ import { toast } from "@/composables/useToast";
 import { invokeAndroid, onAndroid } from "./android";
 
 /**
- * 将原生权威快照投影到已有界面状态，不触发前端加载或切歌
+ * 同步原生快照并补偿传输延迟，周期进度平滑校正、切歌和跳转立即定位
  * @param snapshot - 原生播放状态
  */
 const applySnapshot = (snapshot: AndroidPlaybackSnapshot): void => {
@@ -29,7 +29,6 @@ const applySnapshot = (snapshot: AndroidPlaybackSnapshot): void => {
     previous?.plugin?.pluginId !== next?.plugin?.pluginId;
   status.playIndex = snapshot.currentIndex;
   status.state = snapshot.state;
-  status.position = snapshot.position;
   status.duration = snapshot.duration;
   status.volume = snapshot.volume;
   status.speed = snapshot.speed;
@@ -43,7 +42,11 @@ const applySnapshot = (snapshot: AndroidPlaybackSnapshot): void => {
   playback.setDuration(snapshot.duration);
   playback.setSpeed(snapshot.speed);
   playback.setPlaying(snapshot.state === "playing");
-  playback.setCurrentTime(snapshot.position, { force: true });
+  const elapsed = snapshot.state === "playing" ? Math.max(0, Date.now() - snapshot.timestamp) : 0;
+  const position = Math.min(snapshot.position + elapsed * snapshot.speed, snapshot.duration);
+  status.position = playback.setCurrentTime(position, {
+    force: changed || snapshot.positionDiscontinuity || snapshot.state !== "playing",
+  });
   media.setPlaybackContext(snapshot.context);
   if (changed) {
     media.track = next;
@@ -61,7 +64,7 @@ const applySnapshot = (snapshot: AndroidPlaybackSnapshot): void => {
   ) {
     media.detail = { externalLyrics: [], ...media.detail, quality: snapshot.audioQuality };
   }
-  media.updateLyricIndex(snapshot.position + status.lyricOffsetMs);
+  media.updateLyricIndex(status.position + status.lyricOffsetMs);
 };
 
 /**

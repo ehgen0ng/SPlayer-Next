@@ -202,7 +202,7 @@ public final class PlaybackService extends MediaSessionService {
         }
         player.addListener(new Player.Listener() {
             /**
-             * 将原生变化同步给共享业务和界面
+             * 同步原生状态与进度跳变，使界面能区分主动定位和周期校时
              * @param current - 当前播放器
              * @param events - 本批变化
              */
@@ -217,7 +217,8 @@ public final class PlaybackService extends MediaSessionService {
                     NodeRuntime.publish("android:queue", entries());
                 }
                 savePosition();
-                NodeRuntime.publish("android:playback", snapshot());
+                NodeRuntime.publish("android:playback", snapshot().put("positionDiscontinuity",
+                    events.contains(Player.EVENT_POSITION_DISCONTINUITY)));
             }
 
             /**
