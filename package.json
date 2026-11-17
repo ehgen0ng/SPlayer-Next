@@ -2,7 +2,7 @@
   "name": "splayer-next",
   "productName": "SPlayer-Next",
   "desktopName": "top.imsyy.splayer_next",
-  "version": "1.2.1-fork.4",
+  "version": "1.2.1-fork.5",
   "description": "Cross-platform desktop music player with rich lyric support and wide audio format compatibility",
   "type": "module",
   "main": "./out/main/index.js",
