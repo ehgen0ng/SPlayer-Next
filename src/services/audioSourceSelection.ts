@@ -6,6 +6,8 @@ import {
   type QualityLevel,
 } from "@/utils/quality";
 
+const FOREGROUND_HIRES_WAIT_MS = 3_000;
+
 /** 一次选源所需的音质与已尝试来源 */
 export interface SourceSelectionAttempt {
   quality: QualityLevel;
@@ -75,7 +77,7 @@ export const matchesAudioSource = (
 };
 
 /**
- * 前台有限并发达标即用，后台等待全部候选择优，降级复用已探测结果
+ * 前台限时优先 Hi-Res 并复用无损兜底，后台等待全部候选择优
  * @param requested - 用户请求的音质
  * @param resolve - 按本轮重试状态解析下一个候选
  * @param host - 有序候选、平台探测和取消信号
@@ -192,7 +194,69 @@ export const selectAudioSource = async <T extends { url: string; pluginId?: stri
     });
 
   try {
-    for (let rank = QUALITY_ORDER.indexOf(requested); rank >= 0; rank--) {
+    let firstRank = QUALITY_ORDER.indexOf(requested);
+    if (requested === "hi-res" && !host.waitForAll) {
+      const losslessRank = QUALITY_ORDER.indexOf("lossless");
+      const sources = [...pluginIds, null];
+      const fallback = await new Promise<Candidate | null>((resolveForeground) => {
+        let next = 0;
+        let pending = 0;
+        let settled = false;
+        let expired = false;
+        let best: Candidate | null = null;
+        const timer = setTimeout(() => {
+          expired = true;
+          if (best && best.rank >= losslessRank) complete();
+        }, FOREGROUND_HIRES_WAIT_MS);
+        /** 返回已验证候选并释放本轮计时器和取消监听 */
+        const complete = (): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", complete);
+          resolveForeground(signal?.aborted ? null : best);
+        };
+        /** 同时检查两个来源，有真实无损时不再向同一来源重复请求无损档 */
+        const launch = (): void => {
+          while (!settled && next < sources.length && pending < 2) {
+            if (sources[next] === null && pending > 0) break;
+            const id = sources[next++];
+            pending++;
+            void (async () => {
+              for (const rank of [firstRank, losslessRank]) {
+                const candidate = await inspect(id, rank);
+                if (settled || signal?.aborted) return;
+                if (
+                  candidate &&
+                  (!best || compareAudioQuality(candidate.quality, best.quality) > 0)
+                ) {
+                  best = candidate;
+                }
+                if (best && (best.rank >= firstRank || (expired && best.rank >= losslessRank))) {
+                  complete();
+                  return;
+                }
+                if (candidate && candidate.rank >= losslessRank) break;
+              }
+            })().finally(() => {
+              pending--;
+              if (settled) return;
+              if (next === sources.length && pending === 0) complete();
+              else launch();
+            });
+          }
+        };
+        signal?.addEventListener("abort", complete, { once: true });
+        if (signal?.aborted) complete();
+        else launch();
+      });
+      if (signal?.aborted) return null;
+      if (fallback && fallback.rank >= losslessRank) {
+        return { source: fallback.source, quality: fallback.quality };
+      }
+      firstRank = losslessRank - 1;
+    }
+    for (let rank = firstRank; rank >= 0; rank--) {
       let best = await inspectPlugins(rank);
       if (signal?.aborted) return null;
       if (best && best.rank >= rank) return { source: best.source, quality: best.quality };

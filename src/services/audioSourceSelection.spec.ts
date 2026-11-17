@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { flushPromises } from "@vue/test-utils";
 import type { AudioQuality } from "@shared/types/player";
 import {
   matchesAudioSource,
@@ -14,6 +15,184 @@ const lossless: AudioQuality = {
   bitRate: 900000,
 };
 const hires = { ...lossless, sampleRate: 96000, bitsPerSample: 24 };
+
+afterEach(() => vi.useRealTimers());
+
+describe("前台 Hi-Res 无损兜底", () => {
+  it("Hi-Res 请求已返回真实 Lossless，三秒后直接复用，不重复取址或等待慢源", async () => {
+    vi.useFakeTimers();
+    let finishSlow!: (value: { pluginId: string; url: string }) => void;
+    const resolve = vi.fn(async (attempt: SourceSelectionAttempt) => {
+      if (!attempt.skipOfficialOnline) return null;
+      if (!attempt.skipPluginIds.includes("a")) return { pluginId: "a", url: "lossless" };
+      return new Promise<{ pluginId: string; url: string }>((done) => {
+        finishSlow = done;
+      });
+    });
+    const probe = vi.fn(async (url: string) => ({
+      success: true,
+      data: url === "lossless" ? lossless : hires,
+    }));
+    let settled = false;
+    const selection = selectAudioSource("hi-res", resolve, {
+      pluginIds: ["a", "slow"],
+      probe,
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await selection).toEqual({
+      source: { pluginId: "a", url: "lossless" },
+      quality: lossless,
+    });
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve.mock.calls.every(([attempt]) => attempt.quality === "hi-res")).toBe(true);
+    finishSlow({ pluginId: "slow", url: "late-hires" });
+    await flushPromises();
+    expect(probe).toHaveBeenCalledExactlyOnceWith("lossless");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("短等待内取得真正 Hi-Res，优先使用并清理兜底计时器", async () => {
+    vi.useFakeTimers();
+    let finishHires!: (value: { pluginId: string; url: string }) => void;
+    const selection = selectAudioSource(
+      "hi-res",
+      async (attempt) => {
+        const id = ["a", "b"].find((id) => !attempt.skipPluginIds.includes(id));
+        return id === "a"
+          ? { pluginId: id, url: "lossless" }
+          : new Promise<{ pluginId: string; url: string }>((done) => {
+              finishHires = done;
+            });
+      },
+      {
+        pluginIds: ["a", "b"],
+        probe: async (url) => ({ success: true, data: url === "hires" ? hires : lossless }),
+      },
+    );
+    await vi.advanceTimersByTimeAsync(2000);
+    finishHires({ pluginId: "b", url: "hires" });
+    expect((await selection)?.quality).toEqual(hires);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("已有无损候选且全部来源已结束时无需额外等三秒", async () => {
+    vi.useFakeTimers();
+    const resolve = vi.fn(async (attempt: SourceSelectionAttempt) =>
+      attempt.skipOfficialOnline ? { pluginId: "a", url: "lossless" } : null,
+    );
+    const result = await selectAudioSource("hi-res", resolve, {
+      pluginIds: ["a"],
+      probe: async () => ({ success: true, data: lossless }),
+    });
+    expect(result?.quality).toEqual(lossless);
+    expect(resolve.mock.calls.filter(([attempt]) => attempt.skipOfficialOnline)).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("仅声明无损的插件同时准备兜底，不等待另一来源的 Hi-Res 超时", async () => {
+    vi.useFakeTimers();
+    const resolve = vi.fn(async (attempt: SourceSelectionAttempt) => {
+      const id = ["slow", "flac"].find((id) => !attempt.skipPluginIds.includes(id));
+      if (id === "slow") return new Promise<{ pluginId: string; url: string }>(() => {});
+      return { pluginId: "flac", url: "lossless" };
+    });
+    const selection = selectAudioSource("hi-res", resolve, {
+      pluginIds: ["slow", "flac"],
+      pluginQualities: new Map([["flac", ["lossless"]]]),
+      probe: async () => ({ success: true, data: lossless }),
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect((await selection)?.source.pluginId).toBe("flac");
+    expect(resolve.mock.calls.map(([attempt]) => attempt.quality)).toEqual(["hi-res", "lossless"]);
+  });
+
+  it("计时到期尚未拿到无损时继续查找，不能把 MP3 当作无损兜底", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: { pluginId: string; url: string }) => void;
+    let settled = false;
+    const selection = selectAudioSource(
+      "hi-res",
+      async (attempt) => {
+        if (!attempt.skipOfficialOnline) return null;
+        if (!attempt.skipPluginIds.includes("a")) return { pluginId: "a", url: "fake-flac" };
+        return new Promise<{ pluginId: string; url: string }>((done) => {
+          finish = done;
+        });
+      },
+      {
+        pluginIds: ["a", "b"],
+        probe: async (url) => ({
+          success: true,
+          data:
+            url === "real-flac"
+              ? lossless
+              : { ...lossless, codec: "mp3", bitRate: 320000, bitsPerSample: 32 },
+        }),
+      },
+    ).then((result) => {
+      settled = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(settled).toBe(false);
+    finish({ pluginId: "b", url: "real-flac" });
+    expect((await selection)?.quality).toEqual(lossless);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("后台预缓存超过三秒仍等待真实 Hi-Res，不受前台兜底限时影响", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: { pluginId: string; url: string }) => void;
+    let settled = false;
+    const selection = selectAudioSource(
+      "hi-res",
+      async (attempt) =>
+        !attempt.skipPluginIds.includes("a")
+          ? { pluginId: "a", url: "lossless" }
+          : new Promise<{ pluginId: string; url: string }>((done) => {
+              finish = done;
+            }),
+      {
+        pluginIds: ["a", "b"],
+        waitForAll: true,
+        probe: async (url) => ({ success: true, data: url === "hires" ? hires : lossless }),
+      },
+    ).then((result) => {
+      settled = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(settled).toBe(false);
+    finish({ pluginId: "b", url: "hires" });
+    expect((await selection)?.quality).toEqual(hires);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("有无损兜底时取消也不播放，计时器与迟到探测一并清理", async () => {
+    vi.useFakeTimers();
+    const abort = new AbortController();
+    const probe = vi.fn(async () => ({ success: true, data: lossless }));
+    const selection = selectAudioSource(
+      "hi-res",
+      async (attempt) =>
+        !attempt.skipPluginIds.includes("a")
+          ? { pluginId: "a", url: "lossless" }
+          : new Promise<{ pluginId: string; url: string }>(() => {}),
+      { pluginIds: ["a", "b"], signal: abort.signal, probe },
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    abort.abort();
+    expect(await selection).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(probe).toHaveBeenCalledOnce();
+  });
+});
 
 describe("可选的音源身份校验", () => {
   const track = { artists: [{ name: "莫文蔚" }], duration: 300000 };
@@ -203,7 +382,7 @@ describe("公共并发选源", () => {
     }
   });
 
-  it("降级复用已达标来源，只重试仍未达标者，同一地址仅探测一次", async () => {
+  it("后台降级复用已达标来源，只重试仍未达标者，同一地址仅探测一次", async () => {
     const pluginIds = ["a", "b"];
     const resolve = vi.fn(async (attempt: SourceSelectionAttempt) => {
       if (!attempt.skipOfficialOnline) return null;
@@ -215,7 +394,8 @@ describe("公共并发选源", () => {
       data: url === "a" ? lossless : { ...lossless, codec: "mp3", bitRate: 320000 },
     }));
     expect(
-      (await selectAudioSource("hi-res", resolve, { pluginIds, probe }))?.source.pluginId,
+      (await selectAudioSource("hi-res", resolve, { pluginIds, probe, waitForAll: true }))?.source
+        .pluginId,
     ).toBe("a");
     expect(resolve.mock.calls.map(([attempt]) => [attempt.quality, attempt.skipPluginIds])).toEqual(
       [

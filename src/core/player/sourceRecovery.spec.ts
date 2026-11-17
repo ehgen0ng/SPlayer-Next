@@ -266,11 +266,54 @@ describe("插件优先按实际解码音质换源", () => {
     expect(status.trackLoading).toBe(false);
   });
 
+  it.each(["netease", "qqmusic", "kugou"] as const)(
+    "%s 前台复用 Hi-Res 返回的真实无损，三秒后起播且忽略迟到结果",
+    async (source) => {
+      mocks.playerSettings.songLevel = "hi-res";
+      mocks.plugins = mocks.plugins.slice(0, 2);
+      qualities.a = lossless;
+      const queue = await import("@/stores/queue");
+      queue.setQueue([tracks[0]!, { ...tracks[1]!, source }]);
+      let finish!: (result: { url: string }) => void;
+      mocks.pluginResolve.mockImplementation(({ pluginId }) =>
+        pluginId === "a"
+          ? Promise.resolve({ url: "https://plugin/a.flac" })
+          : new Promise((resolve) => {
+              finish = resolve;
+            }),
+      );
+      const loading = player.playAtIndex(1);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(mocks.load).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await loading;
+      expect(status.currentSource).toBe("https://plugin/a.flac");
+      expect(mocks.load).toHaveBeenCalledOnce();
+      expect(mocks.play).toHaveBeenCalledOnce();
+      expect(mocks.pluginResolve.mock.calls.every(([args]) => args.quality === "hi-res")).toBe(
+        true,
+      );
+      expect(mocks.warning).toHaveBeenCalledExactlyOnceWith("player.qualityFallback");
+      finish({ url: "https://plugin/b.flac" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(status.currentSource).toBe("https://plugin/a.flac");
+      expect(mocks.load).toHaveBeenCalledOnce();
+      expect(mocks.probe).toHaveBeenCalledExactlyOnceWith("https://plugin/a.flac");
+    },
+  );
+
   it("Hi-Res 请求按真实档位过滤，取得达标候选后才播放", async () => {
     mocks.playerSettings.songLevel = "hi-res";
     await player.playAtIndex(1);
-    expect(mocks.pluginResolve.mock.calls.map(([args]) => args.pluginId)).toEqual(["a", "b", "c"]);
-    expect(mocks.pluginResolve.mock.calls.every(([args]) => args.quality === "hi-res")).toBe(true);
+    expect(mocks.pluginResolve).toHaveBeenCalledWith(
+      expect.objectContaining({ pluginId: "c", quality: "hi-res" }),
+    );
+    expect(
+      mocks.pluginResolve.mock.calls
+        .filter(([args]) => args.pluginId === "b")
+        .map(([args]) => args.quality),
+    ).toEqual(["hi-res"]);
     expect(status.currentSource).toBe("https://plugin/c.flac");
     expect(mocks.play).toHaveBeenCalledOnce();
     expect(mocks.warning).not.toHaveBeenCalled();
@@ -386,18 +429,22 @@ describe("插件优先按实际解码音质换源", () => {
     expect(mocks.play).toHaveBeenCalledOnce();
   });
 
-  it("全部不达标时尝试完插件和内置音源，再回到较高档位并提示降级", async () => {
+  it("未取得 Hi-Res 时保留真实无损兜底，提示降级且不重复请求已验证来源", async () => {
     mocks.playerSettings.songLevel = "hi-res";
     qualities.c = { ...mp3, bitRate: 320000 };
     await player.playAtIndex(1);
     expect(mocks.load.mock.calls.map(([url]) => url)).toEqual(["https://plugin/b.flac"]);
     expect(mocks.probe).toHaveBeenCalledTimes(4);
-    expect(mocks.pluginResolve.mock.calls.map(([args]) => [args.pluginId, args.quality])).toEqual([
-      ["a", "hi-res"],
-      ["b", "hi-res"],
-      ["c", "hi-res"],
-      ["a", "lossless"],
-    ]);
+    expect(
+      mocks.pluginResolve.mock.calls
+        .filter(([args]) => args.pluginId === "b")
+        .map(([args]) => args.quality),
+    ).toEqual(["hi-res"]);
+    expect(
+      mocks.pluginResolve.mock.calls.every(([args]) =>
+        ["hi-res", "lossless"].includes(args.quality),
+      ),
+    ).toBe(true);
     expect(mocks.play).toHaveBeenCalledOnce();
     expect(mocks.warning).toHaveBeenCalledExactlyOnceWith("player.qualityFallback");
     expect(mocks.recordMusicSuccess).toHaveBeenCalledExactlyOnceWith("b");
@@ -423,15 +470,14 @@ describe("插件优先按实际解码音质换源", () => {
       return { url: `https://plugin/${pluginId}.flac` };
     });
     await player.playAtIndex(1);
-    expect(mocks.pluginResolve.mock.calls.map(([args]) => [args.pluginId, args.quality])).toEqual([
-      ["a", "hi-res"],
-      ["b", "hi-res"],
-      ["c", "hi-res"],
-      ["a", "lossless"],
-      ["b", "lossless"],
-      ["c", "lossless"],
-    ]);
-    expect(status.currentSource).toBe("https://plugin/b.flac");
+    for (const id of ["a", "b", "c"]) {
+      expect(
+        mocks.pluginResolve.mock.calls
+          .filter(([args]) => args.pluginId === id)
+          .map(([args]) => args.quality),
+      ).toEqual(["hi-res", "lossless"]);
+    }
+    expect(status.currentSource).toBe("https://plugin/c.flac");
     expect(mocks.playerSettings.songLevel).toBe("hi-res");
     expect(mocks.warning).toHaveBeenCalledOnce();
   });
@@ -447,16 +493,15 @@ describe("插件优先按实际解码音质换源", () => {
       return { url: `https://plugin/${pluginId}.flac` };
     });
     await player.playAtIndex(1);
-    expect(mocks.pluginResolve.mock.calls.map(([args]) => [args.pluginId, args.quality])).toEqual([
-      ["a", "hi-res"],
-      ["b", "hi-res"],
-      ["c", "hi-res"],
-      ["a", "lossless"],
-      ["b", "lossless"],
-      ["c", "lossless"],
-      ["a", "hq"],
-      ["b", "hq"],
-    ]);
+    for (const id of ["a", "b", "c"]) {
+      const attempts = mocks.pluginResolve.mock.calls
+        .filter(([args]) => args.pluginId === id)
+        .map(([args]) => args.quality);
+      expect(attempts.slice(0, 2)).toEqual(["hi-res", "lossless"]);
+    }
+    expect(mocks.pluginResolve).toHaveBeenCalledWith(
+      expect.objectContaining({ pluginId: "a", quality: "hq" }),
+    );
     expect(status.currentSource).toBe("https://plugin/a.flac");
     expect(mocks.play).toHaveBeenCalledOnce();
   });
