@@ -200,6 +200,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -234,6 +235,19 @@ jobs:
               ;;
           esac
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Generate release notes
+        if: env.UPDATE_CHANNEL == 'latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          # 仅以已发布正式版为基线，草稿和预览版不截断正式版更新记录
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            > "$RUNNER_TEMP/releases.json"
+          node --test .github/scripts/generate-release-notes.test.cjs
+          node .github/scripts/generate-release-notes.cjs \
+            "$RUNNER_TEMP/releases.json" release-notes.md
 
       - name: Download all artifacts
         uses: actions/download-artifact@v8
@@ -275,7 +289,7 @@ jobs:
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --title "$RELEASE_TAG" \
-              --generate-notes \
+              --notes-file release-notes.md \
               --verify-tag \
               --draft \
               release-assets/*

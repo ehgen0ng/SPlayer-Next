@@ -176,6 +176,12 @@ test("发布工作流将 Fork 和无后缀正式版创建为草稿，Beta 保持
       assert.deepEqual(args.slice(0, 3), ["release", "create", `v${version}`]);
       assert.ok(args.includes(releaseFlag));
       assert.equal(args.includes(releaseFlag === "--draft" ? "--prerelease" : "--draft"), false);
+      if (channel === "latest") {
+        assert.equal(args[args.indexOf("--notes-file") + 1], "release-notes.md");
+        assert.equal(args.includes("--generate-notes"), false);
+      } else {
+        assert.ok(args.includes("--generate-notes"));
+      }
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
